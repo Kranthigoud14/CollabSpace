@@ -15,14 +15,24 @@ const app = express();
 
 /**
  * =========================
+ * TRUST PROXY (RENDER FIX)
+ * =========================
+ */
+app.set("trust proxy", 1);
+
+/**
+ * =========================
  * MIDDLEWARE
  * =========================
  */
 
-// Secure CORS (important for auth + cookies)
+// CORS
 app.use(
   cors({
-    origin: true, // or replace with frontend URL in production
+    origin: [
+      "http://localhost:5173",
+      "https://collab-space-ten.vercel.app"
+    ],
     credentials: true,
   })
 );
