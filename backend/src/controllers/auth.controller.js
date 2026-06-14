@@ -2,7 +2,7 @@ import User from "../models/User.model.js";
 import generateToken from "../utils/generateToken.js";
 
 // =========================
-// REGISTER USER (FIXED + DEBUG)
+// REGISTER USER
 // =========================
 export const registerUser = async (req, res) => {
   try {
@@ -10,7 +10,6 @@ export const registerUser = async (req, res) => {
 
     const { name, email, password } = req.body || {};
 
-    // safety check (IMPORTANT in production)
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -28,8 +27,6 @@ export const registerUser = async (req, res) => {
     }
 
     const user = await User.create({ name, email, password });
-
-    console.log("USER CREATED:", user._id);
 
     return res.status(201).json({
       success: true,
@@ -54,7 +51,7 @@ export const registerUser = async (req, res) => {
 };
 
 // =========================
-// LOGIN USER (SAFE)
+// LOGIN USER
 // =========================
 export const loginUser = async (req, res) => {
   try {
@@ -99,6 +96,55 @@ export const loginUser = async (req, res) => {
   } catch (error) {
     console.log("LOGIN ERROR:", error);
 
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+// =========================
+// GET PROFILE
+// =========================
+export const getProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select("-password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user,
+    });
+
+  } catch (error) {
+    console.log("PROFILE ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+// =========================
+// LOGOUT USER
+// =========================
+export const logoutUser = async (req, res) => {
+  try {
+    return res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+
+  } catch (error) {
     return res.status(500).json({
       success: false,
       message: "Server error",
