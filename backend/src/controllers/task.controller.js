@@ -6,13 +6,45 @@ import { createNotification } from "../services/notification.service.js";
 import { getIO } from "../services/socket.service.js";
 
 /**
- * Helper: get role
+ * Helper: get role (includes project owner)
  */
 const getUserRole = (project, userId) => {
+  if (project.owner?.toString() === userId.toString()) {
+    return "owner";
+  }
+
   const member = project.members.find(
     (m) => m.user.toString() === userId.toString()
   );
   return member ? member.role : null;
+};
+
+/**
+ * Validate due date is today or future
+ */
+const validateDueDate = (dueDate) => {
+  if (!dueDate) return null;
+
+  const date = new Date(dueDate);
+  if (Number.isNaN(date.getTime())) {
+    return "Invalid due date";
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(date);
+  due.setHours(0, 0, 0, 0);
+
+  if (due < today) {
+    return "Due date cannot be in the past";
+  }
+
+  return null;
+};
+
+const emitToProject = (io, projectId, event, payload) => {
+  if (!projectId) return;
+  io.to(projectId.toString()).emit(event, payload);
 };
 
 /**
@@ -29,13 +61,26 @@ const requireProjectAccess = (project, userId) => {
  */
 export const createTask = async (req, res) => {
   try {
-    const { project, document, title, description, assignedTo, dueDate } =
-      req.body;
+    const {
+      project,
+      document,
+      title,
+      description,
+      assignedTo,
+      dueDate,
+      status,
+      priority,
+    } = req.body;
 
     if ((!project && !document) || (project && document)) {
       return res.status(400).json({
         message: "Provide exactly ONE of project or document",
       });
+    }
+
+    const dueDateError = validateDueDate(dueDate);
+    if (dueDateError) {
+      return res.status(400).json({ message: dueDateError });
     }
 
     let role = null;
@@ -64,7 +109,9 @@ export const createTask = async (req, res) => {
       title,
       description,
       assignedTo,
-      dueDate,
+      dueDate: dueDate || null,
+      status: status || "todo",
+      priority: priority || "medium",
     });
 
     await logActivity({
@@ -79,7 +126,7 @@ export const createTask = async (req, res) => {
     const io = getIO();
 
     if (project) {
-      io.to(project).emit("task_created", task);
+      emitToProject(io, project, "task_created", task);
     }
 
     if (assignedTo) {
@@ -143,6 +190,13 @@ export const updateTask = async (req, res) => {
       }
     }
 
+    if (req.body.dueDate !== undefined) {
+      const dueDateError = validateDueDate(req.body.dueDate);
+      if (dueDateError) {
+        return res.status(400).json({ message: dueDateError });
+      }
+    }
+
     const updated = await Task.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -161,7 +215,7 @@ export const updateTask = async (req, res) => {
     const io = getIO();
 
     if (updated.project) {
-      io.to(updated.project).emit("task_updated", updated);
+      emitToProject(io, updated.project, "task_updated", updated);
     }
 
     if (updated.assignedTo) {
@@ -220,7 +274,7 @@ export const deleteTask = async (req, res) => {
     const io = getIO();
 
     if (task.project) {
-      io.to(task.project).emit("task_deleted", task._id);
+      emitToProject(io, task.project, "task_deleted", task._id);
     }
 
     res.json({ message: "Task deleted" });
@@ -236,7 +290,10 @@ export const deleteTask = async (req, res) => {
 export const getAllTasks = async (req, res) => {
   try {
     const projects = await Project.find({
-      "members.user": req.user.userId,
+      $or: [
+        { owner: req.user.userId },
+        { "members.user": req.user.userId },
+      ],
     }).select("_id");
 
     const projectIds = projects.map((p) => p._id);
@@ -245,7 +302,8 @@ export const getAllTasks = async (req, res) => {
       project: { $in: projectIds },
     })
       .sort({ createdAt: -1 })
-      .populate("assignedTo", "name email");
+      .populate("assignedTo", "name email")
+      .populate("project", "name");
 
     res.json(tasks);
   } catch (error) {

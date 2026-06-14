@@ -9,6 +9,7 @@ Rules:
 - Simple English
 - No bullets
 - No JSON
+- Return only the summary text
 
 Content:
 ${content}
@@ -23,6 +24,7 @@ Rules:
 - No bullets
 - No numbering
 - Simple sentences
+- Return only the task list text
 
 Content:
 ${content}
@@ -39,8 +41,46 @@ Rules:
 - Otherwise, keep answers concise and clear.
 - Adjust depth based on question complexity.
 - Answer directly.
+- Return only the answer text, no preamble.
 
 Question:
 ${question}
-`
+`,
+
+  transform: (action, content, context = "") => {
+    const actionRules = {
+      improve:
+        "Improve the writing. Fix grammar, make it professional, engaging, and clear. Keep the same meaning.",
+      rewrite:
+        "Rewrite the content with fresh wording while preserving the original meaning and tone.",
+      expand:
+        "Expand the content with more detail, examples, and clarity. Make it roughly 2x longer.",
+      shorten:
+        "Shorten the content while keeping all key points. Be concise.",
+      grammar:
+        "Fix grammar, spelling, and punctuation only. Do not change meaning or style unnecessarily.",
+      generate:
+        "Generate high-quality content based on the prompt. Match the requested tone and format.",
+      continue:
+        "Continue writing naturally from where the text ends. Write only the next sentence or short paragraph. Do not repeat the input.",
+    };
+
+    const rule = actionRules[action] || actionRules.improve;
+
+    return `
+You are a writing assistant inside a collaborative document editor.
+
+Task: ${rule}
+
+Rules:
+- Return only the transformed text
+- No markdown fences unless the input uses them
+- No explanations or preamble
+- Plain text output
+
+${context ? `Additional context:\n${context}\n` : ""}
+Content:
+${content}
+`;
+  },
 };

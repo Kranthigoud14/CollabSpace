@@ -5,6 +5,10 @@ export const getProjectMember = async (projectId, userId) => {
 
   if (!project) return null;
 
+  if (project.owner?.toString() === userId.toString()) {
+    return { user: userId, role: "owner" };
+  }
+
   const member = project.members.find(
     (m) => m.user.toString() === userId
   );

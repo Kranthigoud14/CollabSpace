@@ -8,6 +8,10 @@ import { getIO } from "../services/socket.service.js";
  * helper → check user role in project
  */
 const getUserRole = (project, userId) => {
+  if (project.owner?.toString() === userId.toString()) {
+    return "owner";
+  }
+
   const member = project.members.find(
     (m) => m.user.toString() === userId.toString()
   );
@@ -54,7 +58,7 @@ export const createDocument = async (req, res) => {
 
     const io = getIO();
     if (project) {
-      io.to(project).emit("document_created", document);
+      io.to(project.toString()).emit("document_created", document);
     }
 
     await createNotification({
@@ -137,7 +141,7 @@ export const updateDocument = async (req, res) => {
     const io = getIO();
 
     if (document.project) {
-      io.to(document.project).emit("document_updated", updated);
+      io.to(document.project.toString()).emit("document_updated", updated);
     }
 
     await createNotification({
@@ -191,7 +195,7 @@ export const deleteDocument = async (req, res) => {
     const io = getIO();
 
     if (document.project) {
-      io.to(document.project).emit("document_deleted", document._id);
+      io.to(document.project.toString()).emit("document_deleted", document._id);
     }
 
     await createNotification({

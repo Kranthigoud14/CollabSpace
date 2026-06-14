@@ -69,6 +69,17 @@ const STATUS_LABEL = {
   "completed": "Completed",
 };
 
+const todayDateString = () => new Date().toISOString().split("T")[0];
+
+const isPastDueDate = (dateStr) => {
+  if (!dateStr) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dateStr);
+  due.setHours(0, 0, 0, 0);
+  return due < today;
+};
+
 // ─── EMPTY MODAL STATE ─────────────────────────────────────────────────────────
 const EMPTY_FORM = {
   title: "",
@@ -168,11 +179,15 @@ function Tasks() {
     return () => unsubscribeSocket(selectedProjectId, projIds);
   }, [selectedProjectId, projects]);
 
-  const loadTasks = () => {
-    if (selectedProjectId === "all") {
-      fetchTasks();
-    } else {
-      fetchProjectTasks(selectedProjectId);
+  const loadTasks = async () => {
+    try {
+      if (selectedProjectId === "all") {
+        await fetchTasks();
+      } else {
+        await fetchProjectTasks(selectedProjectId);
+      }
+    } catch (err) {
+      pushToast(err?.response?.data?.message || "Failed to load tasks.");
     }
   };
 
@@ -212,6 +227,11 @@ function Tasks() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
+
+    if (form.dueDate && isPastDueDate(form.dueDate)) {
+      pushToast("Due date cannot be in the past.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -300,11 +320,22 @@ function Tasks() {
   };
 
   // ── Column buckets ─────────────────────────────────────────────────────────
+  const visibleTasks =
+    selectedProjectId === "all"
+      ? tasks || []
+      : (tasks || []).filter((t) => {
+          const projId =
+            typeof t.project === "string" ? t.project : t.project?._id;
+          return projId === selectedProjectId;
+        });
+
   const buckets = {
-    "todo": (tasks || []).filter((t) => t.status === "todo"),
-    "in-progress": (tasks || []).filter((t) => t.status === "in-progress"),
-    "review": (tasks || []).filter((t) => t.status === "review"),
-    "completed": (tasks || []).filter((t) => t.status === "completed" || t.status === "done"),
+    "todo": visibleTasks.filter((t) => t.status === "todo"),
+    "in-progress": visibleTasks.filter((t) => t.status === "in-progress"),
+    "review": visibleTasks.filter((t) => t.status === "review"),
+    "completed": visibleTasks.filter(
+      (t) => t.status === "completed" || t.status === "done"
+    ),
   };
 
   // Get active project structure for modal assignee filtering
@@ -676,6 +707,7 @@ function Tasks() {
                   <input
                     type="date"
                     value={form.dueDate}
+                    min={todayDateString()}
                     onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white text-sm outline-none focus:border-indigo-500 transition-all [color-scheme:dark] cursor-pointer font-medium"
                   />

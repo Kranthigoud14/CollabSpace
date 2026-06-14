@@ -69,13 +69,20 @@ export const requireRole = (...allowedRoles) => {
         (m) => m.user.toString() === req.user.userId.toString()
       );
 
-      if (!member) {
+      let role = null;
+      if (project.owner?.toString() === req.user.userId.toString()) {
+        role = "owner";
+      } else if (member) {
+        role = member.role;
+      }
+
+      if (!role) {
         return res.status(403).json({
           message: "Not a project member",
         });
       }
 
-      if (!roles.includes(member.role)) {
+      if (!roles.includes(role)) {
         return res.status(403).json({
           message: "Access denied",
         });

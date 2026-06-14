@@ -3,20 +3,47 @@ import Document from "../models/Document.model.js";
 import Project from "../models/Project.model.js";
 
 const activeUsersByDoc = {};
+const latestContentByDoc = {};
+
+const CURSOR_COLORS = [
+  "#6366f1",
+  "#22d3ee",
+  "#f59e0b",
+  "#10b981",
+  "#f472b6",
+  "#a78bfa",
+];
+
+const cursorColorForUser = (userId = "") => {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
+};
+
+const normalizeProjectId = (value) => {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (value.projectId) return value.projectId.toString();
+  return value.toString();
+};
 
 export const documentSocket = (io) => {
   io.on("connection", async (socket) => {
     console.log("Socket connected:", socket.id);
 
-    // Join user rooms (user + projects)
+    // Auto-join user room + all their project rooms
     if (socket.user?._id) {
       const userId = socket.user._id.toString();
-
       socket.join(userId);
 
       try {
         const userProjects = await Project.find({
-          "members.user": socket.user._id,
+          $or: [
+            { owner: socket.user._id },
+            { "members.user": socket.user._id },
+          ],
         }).select("_id");
 
         userProjects.forEach((p) => {
@@ -27,32 +54,36 @@ export const documentSocket = (io) => {
       }
     }
 
-    // Broadcast active users
     const broadcastUsers = (documentId) => {
       const list = activeUsersByDoc[documentId] || [];
-
       const unique = [];
       const seen = new Set();
 
       for (const u of list) {
         if (!seen.has(u.userId)) {
           seen.add(u.userId);
-          unique.push({
-            userId: u.userId,
-            name: u.name,
-          });
+          unique.push({ userId: u.userId, name: u.name });
         }
       }
 
       io.to(documentId).emit("document:users", unique);
     };
 
-    // JOIN DOCUMENT
-    const joinDocument = async (data) => {
-      try {
-        const documentId =
-          typeof data === "string" ? data : data?.documentId;
+    // Project rooms for task real-time events
+    socket.on("join_project", (data) => {
+      const projectId = normalizeProjectId(data);
+      if (projectId) socket.join(projectId);
+    });
 
+    socket.on("leave_project", (data) => {
+      const projectId = normalizeProjectId(data);
+      if (projectId) socket.leave(projectId);
+    });
+
+    // JOIN DOCUMENT
+    socket.on("join_document", async (data) => {
+      try {
+        const documentId = typeof data === "string" ? data : data?.documentId;
         if (!documentId) return;
 
         const doc = await Document.findById(documentId);
@@ -70,11 +101,7 @@ export const documentSocket = (io) => {
             doc.project.toString(),
             socket.user._id.toString()
           );
-
-          if (!member) {
-            return socket.emit("error", "No access");
-          }
-
+          if (!member) return socket.emit("error", "No access");
           role = member.role;
         }
 
@@ -85,14 +112,10 @@ export const documentSocket = (io) => {
         socket.data.name = socket.user.name;
         socket.data.role = role;
 
-        if (!activeUsersByDoc[documentId]) {
-          activeUsersByDoc[documentId] = [];
-        }
-
+        if (!activeUsersByDoc[documentId]) activeUsersByDoc[documentId] = [];
         activeUsersByDoc[documentId] = activeUsersByDoc[documentId].filter(
           (u) => u.socketId !== socket.id
         );
-
         activeUsersByDoc[documentId].push({
           socketId: socket.id,
           userId: socket.data.userId,
@@ -101,39 +124,43 @@ export const documentSocket = (io) => {
 
         broadcastUsers(documentId);
 
+        const content =
+          latestContentByDoc[documentId] ?? doc.content ?? "";
+
         socket.emit("joined_document", { documentId, role });
+        socket.emit("joined-document", { documentId, role });
+        socket.emit("document_state", { documentId, content });
       } catch (err) {
-        console.error(err);
+        console.error("join_document error:", err);
         socket.emit("error", "Join failed");
       }
-    };
-
-    socket.on("join_document", joinDocument);
+    });
 
     // LEAVE DOCUMENT
     socket.on("leave_document", (data) => {
-      const documentId =
-        typeof data === "string" ? data : data?.documentId;
-
+      const documentId = typeof data === "string" ? data : data?.documentId;
       if (!documentId) return;
 
       socket.leave(documentId);
 
-      if (activeUsersByDoc[documentId]) {
-        activeUsersByDoc[documentId] =
-          activeUsersByDoc[documentId].filter(
-            (u) => u.socketId !== socket.id
-          );
+      if (socket.data.documentId === documentId) {
+        socket.data.documentId = null;
+        socket.data.role = null;
+      }
 
+      if (activeUsersByDoc[documentId]) {
+        activeUsersByDoc[documentId] = activeUsersByDoc[documentId].filter(
+          (u) => u.socketId !== socket.id
+        );
         broadcastUsers(documentId);
       }
     });
 
-    // REALTIME EDITING (FIXED)
+    // REAL-TIME CONTENT SYNC
     socket.on("send_changes", (data) => {
-      const { documentId, content } = data;
+      const { documentId, content } = data || {};
 
-      if (!documentId) return;
+      if (!documentId || content === undefined) return;
 
       if (socket.data.documentId !== documentId) {
         return socket.emit("error", "Not joined in document");
@@ -143,42 +170,59 @@ export const documentSocket = (io) => {
         return socket.emit("error", "No edit permission");
       }
 
-      io.to(documentId).emit("receive_changes", {
+      latestContentByDoc[documentId] = content;
+
+      const payload = {
         documentId,
         content,
         user: socket.data.name,
-      });
+        sourceId: socket.id,
+        timestamp: Date.now(),
+      };
+
+      socket.broadcast.to(documentId).emit("receive_changes", payload);
+      socket.broadcast.to(documentId).emit("receive-changes", payload);
     });
 
-    // typing
+    // TYPING INDICATORS
     socket.on("user:typing", ({ documentId }) => {
+      if (!documentId || socket.data.documentId !== documentId) return;
       socket.to(documentId).emit("user:typing", {
+        documentId,
         user: socket.data.name,
+        userId: socket.data.userId,
       });
     });
 
     socket.on("user:stop-typing", ({ documentId }) => {
+      if (!documentId || socket.data.documentId !== documentId) return;
       socket.to(documentId).emit("user:stop-typing", {
+        documentId,
         user: socket.data.name,
+        userId: socket.data.userId,
       });
     });
 
-    // cursor
-    socket.on("cursor:move", ({ documentId, position }) => {
+    // CURSOR POSITION
+    socket.on("cursor:move", ({ documentId, position, selection }) => {
+      if (!documentId || socket.data.documentId !== documentId) return;
       socket.to(documentId).emit("cursor:update", {
+        documentId,
         userId: socket.data.userId,
         name: socket.data.name,
+        color: cursorColorForUser(socket.data.userId),
         position,
+        selection,
       });
     });
 
-    // cleanup
+    // DISCONNECT CLEANUP
     socket.on("disconnect", () => {
+      console.log("Socket disconnected:", socket.id);
       Object.keys(activeUsersByDoc).forEach((docId) => {
         activeUsersByDoc[docId] = activeUsersByDoc[docId].filter(
           (u) => u.socketId !== socket.id
         );
-
         broadcastUsers(docId);
       });
     });

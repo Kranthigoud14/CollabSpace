@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams } from "react-router-dom";
 import AppLayout from "../layout/AppLayout";
 import api from "../../api/axios";
 import socketService from "../../services/socket";
@@ -19,7 +19,6 @@ import StarterKit from "@tiptap/starter-kit";
 
 function DocumentEditor() {
   const { id } = useParams();
-  const navigate = useNavigate();
 
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
@@ -29,49 +28,159 @@ function DocumentEditor() {
   const [comments, setComments] = useState([]);
   const [selectedText, setSelectedText] = useState("");
   const [commentText, setCommentText] = useState("");
-  const [activeTab, setActiveTab] = useState("comments"); // 'comments' | 'ai'
+  const [activeTab, setActiveTab] = useState("comments");
   const [replyTexts, setReplyTexts] = useState({});
   const [activeReplyId, setActiveReplyId] = useState(null);
 
   const [remoteCursors, setRemoteCursors] = useState({});
   const [cursorCoords, setCursorCoords] = useState({});
 
+  const editorRef = useRef(null);
+  const myDocRoleRef = useRef("member");
+  const documentJoinedRef = useRef(false);
+  const isApplyingRemoteRef = useRef(false);
+  const pendingRemoteContentRef = useRef(null);
+  const pendingOutboundRef = useRef(null);
+  const lastRemoteUpdateRef = useRef(0);
+  const initialLoadDoneRef = useRef(false);
+  const typingTimerRef = useRef(null);
+  const typerTimeoutsRef = useRef({});
+
   const user = JSON.parse(localStorage.getItem("user")) || { name: "Developer" };
 
-  // ---------------- TIPTAP EDITOR ----------------
+  const applyRemoteContent = useCallback((content) => {
+    const ed = editorRef.current;
+    if (!ed) {
+      pendingRemoteContentRef.current = content;
+      return;
+    }
+
+    const currentHTML = ed.getHTML();
+    if (content === currentHTML) return;
+
+    lastRemoteUpdateRef.current = Date.now();
+    isApplyingRemoteRef.current = true;
+
+    const { from, to } = ed.state.selection;
+    ed.commands.setContent(content, { emitUpdate: false });
+    try {
+      ed.commands.setTextSelection({ from, to });
+    } catch (_) {
+      /* selection may be invalid after content change */
+    }
+
+    isApplyingRemoteRef.current = false;
+  }, []);
+
+  const titleRef = useRef(title);
+  useEffect(() => {
+    titleRef.current = title;
+  }, [title]);
+
+  const autoSave = useCallback(
+    (content) => {
+      clearTimeout(window.saveTimer);
+      setSaving(true);
+
+      window.saveTimer = setTimeout(async () => {
+        try {
+          await api.put(`/documents/${id}`, {
+            title: titleRef.current,
+            content,
+          });
+          setSaving(false);
+        } catch (err) {
+          console.error(err);
+          setSaving(false);
+        }
+      }, 1200);
+    },
+    [id]
+  );
+
+  const emitDocumentChanges = useCallback(
+    (content) => {
+      const sock = socketService.getSocket();
+      if (!sock) return;
+
+      if (documentJoinedRef.current) {
+        sock.emit("send_changes", { documentId: id, content });
+        pendingOutboundRef.current = null;
+      } else {
+        pendingOutboundRef.current = content;
+      }
+    },
+    [id]
+  );
+
+  const handleChange = useCallback(
+    (content) => {
+      if (myDocRoleRef.current === "viewer") return;
+      if (isApplyingRemoteRef.current) return;
+
+      emitDocumentChanges(content);
+      autoSave(content);
+    },
+    [emitDocumentChanges, autoSave]
+  );
+
+  const emitTyping = useCallback(() => {
+    const sock = socketService.getSocket();
+    if (!sock || myDocRoleRef.current === "viewer" || !documentJoinedRef.current) {
+      return;
+    }
+
+    sock.emit("user:typing", { documentId: id });
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      const s = socketService.getSocket();
+      if (s) s.emit("user:stop-typing", { documentId: id });
+    }, 1500);
+  }, [id]);
+
   const editor = useEditor({
     extensions: [StarterKit],
     content: "",
 
-    onSelectionUpdate: ({ editor }) => {
-      const text = editor.state.doc.textBetween(
-        editor.state.selection.from,
-        editor.state.selection.to
+    onSelectionUpdate: ({ editor: ed }) => {
+      const text = ed.state.doc.textBetween(
+        ed.state.selection.from,
+        ed.state.selection.to
       );
       setSelectedText(text);
 
-      // Emit cursor movement
       const sock = socketService.getSocket();
-      if (sock && myDocRole !== "viewer") {
+      if (sock && myDocRoleRef.current !== "viewer" && documentJoinedRef.current) {
         sock.emit("cursor:move", {
           documentId: id,
-          position: { index: editor.state.selection.anchor },
+          position: { index: ed.state.selection.anchor },
           selection: {
-            start: editor.state.selection.from,
-            end: editor.state.selection.to,
+            start: ed.state.selection.from,
+            end: ed.state.selection.to,
           },
         });
       }
     },
 
-    onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      handleChange(html);
+    onUpdate: ({ editor: ed }) => {
+      handleChange(ed.getHTML());
       emitTyping();
     },
   });
 
-  // ---------------- CURSOR POSITION CALCULATION ----------------
+  useEffect(() => {
+    editorRef.current = editor;
+    if (editor && pendingRemoteContentRef.current !== null) {
+      applyRemoteContent(pendingRemoteContentRef.current);
+      pendingRemoteContentRef.current = null;
+    }
+  }, [editor, applyRemoteContent]);
+
+  useEffect(() => {
+    myDocRoleRef.current = myDocRole;
+  }, [myDocRole]);
+
   const updateCursorCoords = () => {
     if (!editor || !editor.view) return;
     const coords = {};
@@ -93,24 +202,20 @@ function DocumentEditor() {
           };
         }
       } catch (e) {
-        // Safe check for temporary layout updates
+        /* layout may be mid-update */
       }
     });
     setCursorCoords(coords);
   };
 
-  // Re-calculate coordinates on cursor / editor changes
   useEffect(() => {
     updateCursorCoords();
   }, [remoteCursors, editor]);
 
-  // Bind to editor events and scroll updates
   useEffect(() => {
     if (!editor) return;
 
-    const handler = () => {
-      updateCursorCoords();
-    };
+    const handler = () => updateCursorCoords();
 
     editor.on("update", handler);
     editor.on("selectionUpdate", handler);
@@ -127,7 +232,6 @@ function DocumentEditor() {
     };
   }, [editor, remoteCursors]);
 
-  // Cleanup expired remote cursors after 6 seconds of inactivity
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -146,47 +250,56 @@ function DocumentEditor() {
     return () => clearInterval(timer);
   }, []);
 
-  // ---------------- SOCKET LISTENERS ----------------
   useEffect(() => {
+    documentJoinedRef.current = false;
+    pendingOutboundRef.current = null;
+    pendingRemoteContentRef.current = null;
+    initialLoadDoneRef.current = false;
+
     socketService.connect();
     const sock = socketService.getSocket();
-
     if (!sock) return;
 
-    // Join document
-    sock.emit("join_document", { documentId: id });
+    const joinDocument = () => {
+      documentJoinedRef.current = false;
+      sock.emit("join_document", { documentId: id });
+    };
 
-    // Handle document sync events
+    joinDocument();
+
     const handleJoined = ({ documentId, role }) => {
-      if (documentId === id) {
-        setMyDocRole(role);
-        if (role === "viewer") {
-          editor?.setEditable(false);
-        } else {
-          editor?.setEditable(true);
-        }
+      if (documentId !== id) return;
+      documentJoinedRef.current = true;
+      setMyDocRole(role);
+      myDocRoleRef.current = role;
+
+      const ed = editorRef.current;
+      if (ed) {
+        role === "viewer" ? ed.setEditable(false) : ed.setEditable(true);
+      }
+
+      if (pendingOutboundRef.current !== null) {
+        sock.emit("send_changes", {
+          documentId: id,
+          content: pendingOutboundRef.current,
+        });
+        pendingOutboundRef.current = null;
       }
     };
 
-    const handleReceiveChanges = (data) => {
-      if (data.documentId === id && editor) {
-        const currentHTML = editor.getHTML();
-        if (data.content !== currentHTML) {
-          // Set content while preserving selection if possible
-          const { from, to } = editor.state.selection;
-          editor.commands.setContent(data.content, false);
-          try {
-            editor.commands.setTextSelection({ from, to });
-          } catch (e) {}
-        }
+    const handleDocumentState = ({ documentId, content }) => {
+      if (documentId !== id || content === undefined) return;
+      if (
+        !initialLoadDoneRef.current ||
+        Date.now() - lastRemoteUpdateRef.current > 300
+      ) {
+        applyRemoteContent(content);
+        initialLoadDoneRef.current = true;
       }
     };
 
-    const handleOnlineUsers = (users) => {
-      setOnlineUsers(users || []);
-    };
+    const handleOnlineUsers = (users) => setOnlineUsers(users || []);
 
-    // Real-time comments sync
     const handleNewComment = (payload) => {
       if (payload.document === id) {
         setComments((prev) => {
@@ -207,7 +320,11 @@ function DocumentEditor() {
     };
 
     const handleCursorUpdate = (data) => {
-      if (data.documentId === id && data.userId !== user._id && data.userId !== user.id) {
+      if (
+        data.documentId === id &&
+        data.userId !== user._id &&
+        data.userId !== user.id
+      ) {
         setRemoteCursors((prev) => ({
           ...prev,
           [data.userId]: {
@@ -221,44 +338,19 @@ function DocumentEditor() {
       }
     };
 
-    sock.on("joined_document", handleJoined);
-    sock.on("joined-document", handleJoined);
-    sock.on("receive_changes", handleReceiveChanges);
-    sock.on("receive-changes", handleReceiveChanges);
-    sock.on("document:users", handleOnlineUsers);
-
-    sock.on("comment:new", handleNewComment);
-    sock.on("comment:resolved", handleResolvedComment);
-    sock.on("comment:deleted", handleDeletedComment);
-    sock.on("cursor:update", handleCursorUpdate);
-
-    return () => {
-      sock.emit("leave_document", { documentId: id });
-      sock.off("joined_document", handleJoined);
-      sock.off("joined-document", handleJoined);
-      sock.off("receive_changes", handleReceiveChanges);
-      sock.off("receive-changes", handleReceiveChanges);
-      sock.off("document:users", handleOnlineUsers);
-      sock.off("comment:new", handleNewComment);
-      sock.off("comment:resolved", handleResolvedComment);
-      sock.off("comment:deleted", handleDeletedComment);
-      sock.off("cursor:update", handleCursorUpdate);
+    const handleReceiveChanges = (data) => {
+      if (data.documentId !== id) return;
+      applyRemoteContent(data.content);
     };
-  }, [id, editor]);
 
-  // ---------------- LOAD DOCUMENT & COMMENTS ----------------
-  useEffect(() => {
-    loadDocument();
-    loadComments();
-  }, [id]);
+    const handleSocketError = (message) => {
+      console.warn("Document socket error:", message);
+      if (message === "Not joined in document") {
+        joinDocument();
+      }
+    };
 
-  // ---------------- TYPING INDICATOR ----------------
-  const [otherTypers, setOtherTypers] = useState([]);
-  useEffect(() => {
-    const sock = socketService.getSocket();
-    if (!sock) return;
-
-    const onUserTyping = (payload) => {
+    const handleUserTyping = (payload) => {
       if (payload.documentId !== id) return;
       const name = payload.user || "Someone";
       if (name === user.name) return;
@@ -268,19 +360,75 @@ function DocumentEditor() {
         return [...prev, name];
       });
 
-      // Clear typing indicator after 2.5s of inactivity
-      setTimeout(() => {
+      if (typerTimeoutsRef.current[name]) {
+        clearTimeout(typerTimeoutsRef.current[name]);
+      }
+      typerTimeoutsRef.current[name] = setTimeout(() => {
         setOtherTypers((prev) => prev.filter((p) => p !== name));
+        delete typerTimeoutsRef.current[name];
       }, 2500);
     };
 
-    sock.on("user:typing", onUserTyping);
-    return () => {
-      sock.off("user:typing", onUserTyping);
+    const handleUserStopTyping = (payload) => {
+      if (payload.documentId !== id) return;
+      const name = payload.user || "Someone";
+      if (typerTimeoutsRef.current[name]) {
+        clearTimeout(typerTimeoutsRef.current[name]);
+        delete typerTimeoutsRef.current[name];
+      }
+      setOtherTypers((prev) => prev.filter((p) => p !== name));
     };
-  }, [id, user.name]);
 
-  // AI suggestion Tab completion logic
+    sock.on("joined_document", handleJoined);
+    sock.on("joined-document", handleJoined);
+    sock.on("document_state", handleDocumentState);
+    sock.on("receive_changes", handleReceiveChanges);
+    sock.on("receive-changes", handleReceiveChanges);
+    sock.on("document:users", handleOnlineUsers);
+    sock.on("comment:new", handleNewComment);
+    sock.on("comment:resolved", handleResolvedComment);
+    sock.on("comment:deleted", handleDeletedComment);
+    sock.on("comment:updated", handleResolvedComment);
+    sock.on("cursor:update", handleCursorUpdate);
+    sock.on("error", handleSocketError);
+    sock.on("user:typing", handleUserTyping);
+    sock.on("user:stop-typing", handleUserStopTyping);
+
+    const unsubReconnect = socketService.onReconnect(() => {
+      joinDocument();
+    });
+
+    return () => {
+      unsubReconnect();
+      sock.emit("leave_document", { documentId: id });
+      sock.off("joined_document", handleJoined);
+      sock.off("joined-document", handleJoined);
+      sock.off("document_state", handleDocumentState);
+      sock.off("receive_changes", handleReceiveChanges);
+      sock.off("receive-changes", handleReceiveChanges);
+      sock.off("document:users", handleOnlineUsers);
+      sock.off("comment:new", handleNewComment);
+      sock.off("comment:resolved", handleResolvedComment);
+      sock.off("comment:deleted", handleDeletedComment);
+      sock.off("comment:updated", handleResolvedComment);
+      sock.off("cursor:update", handleCursorUpdate);
+      sock.off("error", handleSocketError);
+      sock.off("user:typing", handleUserTyping);
+      sock.off("user:stop-typing", handleUserStopTyping);
+
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      Object.values(typerTimeoutsRef.current).forEach(clearTimeout);
+      typerTimeoutsRef.current = {};
+    };
+  }, [id, applyRemoteContent, user._id, user.id, user.name]);
+
+  useEffect(() => {
+    loadDocument();
+    loadComments();
+  }, [id]);
+
+  const [otherTypers, setOtherTypers] = useState([]);
+
   const [ghostSuggestion, setGhostSuggestion] = useState("");
   useEffect(() => {
     const handler = (e) => setGhostSuggestion(e?.detail || "");
@@ -312,7 +460,16 @@ function DocumentEditor() {
       const res = await api.get(`/documents/${id}`);
       const doc = res.data?.document || res.data || res || {};
       setTitle(doc?.title || "Untitled Document");
-      editor?.commands.setContent(doc?.content || "");
+
+      if (
+        !initialLoadDoneRef.current &&
+        Date.now() - lastRemoteUpdateRef.current > 300
+      ) {
+        editorRef.current?.commands.setContent(doc?.content || "", {
+          emitUpdate: false,
+        });
+        initialLoadDoneRef.current = true;
+      }
     } catch (err) {
       console.error("Load document error:", err);
     }
@@ -327,61 +484,15 @@ function DocumentEditor() {
     }
   };
 
-  // ---------------- CHANGE & AUTOSAVE ----------------
-  const handleChange = (content) => {
-    if (myDocRole === "viewer") return;
-
-    const sock = socketService.getSocket();
-    if (sock) {
-      sock.emit("send_changes", { documentId: id, content });
-    }
-
-    autoSave(content);
-  };
-
-  const autoSave = (content) => {
-    clearTimeout(window.saveTimer);
-    setSaving(true);
-
-    window.saveTimer = setTimeout(async () => {
-      try {
-        await api.put(`/documents/${id}`, {
-          title,
-          content,
-        });
-        setSaving(false);
-      } catch (err) {
-        console.error(err);
-        setSaving(false);
-      }
-    }, 1200);
-  };
-
   const handleTitleBlur = () => {
-    if (myDocRole !== "viewer") {
+    if (myDocRoleRef.current !== "viewer") {
       autoSave(editor?.getHTML());
     }
   };
 
-  // ---------------- TYPING BROADCAST ----------------
-  let typingTimer = null;
-  const emitTyping = () => {
-    const sock = socketService.getSocket();
-    if (!sock || myDocRole === "viewer") return;
-
-    sock.emit("user:typing", { documentId: id });
-
-    if (typingTimer) clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => {
-      const s = socketService.getSocket();
-      if (s) s.emit("user:stop-typing", { documentId: id });
-    }, 1500);
-  };
-
-  // ---------------- COMMENTS ACTIONS ----------------
   const handleAddComment = async (e) => {
     e.preventDefault();
-    if (!commentText.trim() || myDocRole === "viewer") return;
+    if (!commentText.trim() || myDocRoleRef.current === "viewer") return;
 
     try {
       const res = await createComment({
@@ -390,7 +501,6 @@ function DocumentEditor() {
       });
       setCommentText("");
       setSelectedText("");
-      // Real-time event will update the list, but we update locally as fallback
       if (res?.data?.comment) {
         setComments((prev) => {
           if (prev.some((c) => c._id === res.data.comment._id)) return prev;
@@ -403,7 +513,7 @@ function DocumentEditor() {
   };
 
   const handleResolveComment = async (commentId, isResolved) => {
-    if (myDocRole === "viewer") return;
+    if (myDocRoleRef.current === "viewer") return;
     try {
       await resolveComment(commentId);
       setComments((prev) =>
@@ -416,7 +526,7 @@ function DocumentEditor() {
 
   const handlePostReply = async (commentId) => {
     const text = replyTexts[commentId];
-    if (!text || !text.trim() || myDocRole === "viewer") return;
+    if (!text || !text.trim() || myDocRoleRef.current === "viewer") return;
 
     try {
       const res = await replyComment(commentId, text.trim());
