@@ -6,6 +6,7 @@ import generateToken from "../utils/generateToken.js";
 // =========================
 export const registerUser = async (req, res) => {
   try {
+    console.log("REGISTER HIT");
     console.log("REGISTER BODY:", req.body);
 
     const { name, email, password } = req.body || {};
@@ -26,7 +27,13 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    const user = await User.create({ name, email, password });
+    const user = await User.create({
+      name,
+      email,
+      password,
+    });
+
+    console.log("USER CREATED:", user._id);
 
     return res.status(201).json({
       success: true,
@@ -55,6 +62,8 @@ export const registerUser = async (req, res) => {
 // =========================
 export const loginUser = async (req, res) => {
   try {
+    console.log("LOGIN HIT");
+
     const { email, password } = req.body || {};
 
     if (!email || !password) {
