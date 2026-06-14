@@ -2,7 +2,7 @@ import { create } from "zustand";
 import api from "../api/axios";
 
 export const useAuthStore = create((set, get) => ({
-  user: null,
+  user: JSON.parse(localStorage.getItem("user")) || null,
   token: localStorage.getItem("token") || null,
   loading: false,
 
@@ -12,7 +12,7 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await api.post("/auth/login", data);
 
-      const { user, token } = res.data;
+      const { token, user } = res.data;
 
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify(user));
@@ -49,7 +49,7 @@ export const useAuthStore = create((set, get) => ({
     try {
       await api.post("/auth/logout");
     } catch (err) {
-      console.log("Backend logout request failed, clearing local storage anyway", err);
+      console.log("Backend logout failed, clearing local storage anyway", err);
     } finally {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
@@ -67,9 +67,11 @@ export const useAuthStore = create((set, get) => ({
 
     try {
       const res = await api.get("/auth/profile");
+
       const user = res.data.user || res.data;
 
       localStorage.setItem("user", JSON.stringify(user));
+
       set({ user });
     } catch (err) {
       console.log("Profile fetch failed");
