@@ -8,7 +8,7 @@ export const documentSocket = (io) => {
   io.on("connection", async (socket) => {
     console.log("Socket connected:", socket.id);
 
-    // Join user rooms (notifications + projects)
+    // Join user rooms (user + projects)
     if (socket.user?._id) {
       const userId = socket.user._id.toString();
 
@@ -80,13 +80,11 @@ export const documentSocket = (io) => {
 
         socket.join(documentId);
 
-        // CACHE USER CONTEXT (VERY IMPORTANT FOR SPEED)
         socket.data.documentId = documentId;
         socket.data.userId = socket.user._id.toString();
         socket.data.name = socket.user.name;
         socket.data.role = role;
 
-        // active users tracking
         if (!activeUsersByDoc[documentId]) {
           activeUsersByDoc[documentId] = [];
         }
@@ -112,7 +110,7 @@ export const documentSocket = (io) => {
 
     socket.on("join_document", joinDocument);
 
-    // LEAVE
+    // LEAVE DOCUMENT
     socket.on("leave_document", (data) => {
       const documentId =
         typeof data === "string" ? data : data?.documentId;
@@ -131,20 +129,20 @@ export const documentSocket = (io) => {
       }
     });
 
-    // =========================
     // REALTIME EDITING (FIXED)
-    // =========================
     socket.on("send_changes", (data) => {
       const { documentId, content } = data;
 
       if (!documentId) return;
 
-      // FAST RBAC (NO DB CALL)
+      if (socket.data.documentId !== documentId) {
+        return socket.emit("error", "Not joined in document");
+      }
+
       if (socket.data.role === "viewer") {
         return socket.emit("error", "No edit permission");
       }
 
-      // BROADCAST TO ALL INCLUDING SENDER
       io.to(documentId).emit("receive_changes", {
         documentId,
         content,
