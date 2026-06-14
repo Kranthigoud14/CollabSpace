@@ -1,0 +1,40 @@
+### CREATE PROJECT (OWNER)
+POST http://localhost:5000/api/projects
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2YTJiOWU4NmQ4N2Q0MGQ2YTlhNTQyNDgiLCJpYXQiOjE3ODEyNDM1MzcsImV4cCI6MTc4MTg0ODMzN30.2miHFjsAL5Gwb71T8y0ziFCy-j8YxrYNdrFljwxaGgk
+Content-Type: application/json
+
+{
+  "name": "Collab Project",
+  "description": "AI Collab Editor"
+}
+
+### GET MY PROJECTS
+GET http://localhost:5000/api/projects
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2YTJiOWU4NmQ4N2Q0MGQ2YTlhNTQyNDgiLCJpYXQiOjE3ODEyNDM1MzcsImV4cCI6MTc4MTg0ODMzN30.2miHFjsAL5Gwb71T8y0ziFCy-j8YxrYNdrFljwxaGgk
+
+### GET PROJECT BY ID
+GET http://localhost:5000/api/projects/projectId
+Authorization: Bearer 
+
+### UPDATE PROJECT (OWNER ONLY)
+PUT http://localhost:5000/api/projects/projectId
+Authorization: Bearer 
+Content-Type: application/json
+
+{
+  "name": "Updated Project",
+  "description": "Updated desc"
+}
+
+### DELETE PROJECT (OWNER ONLY)
+DELETE http://localhost:5000/api/projects/6a2b9eb2d87d40d6a9a54249
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2YTFkYWE0NDg2Yjc0ZDc1NWE4NDU2NjAiLCJpYXQiOjE3ODEyNDM1OTcsImV4cCI6MTc4MTg0ODM5N30.VTKGIbJoxlqDoSwRaKoztXw7_gzyuPGcuyUmDsbQQFA
+
+### JOIN PROJECT (VIEWER)
+POST http://localhost:5000/api/projects/join
+Authorization: Bearer token
+Content-Type: application/json
+
+{
+  "inviteCode": "abcd1234"
+}

@@ -1,0 +1,29 @@
+### DELETE DOCUMENT (OWNER/EDITOR ONLY)
+DELETE http://localhost:5000/api/documents/docId
+Authorization: Bearer token
+
+### GET ALL TASKS
+GET http://localhost:5000/api/tasks
+Authorization: Bearer token
+
+### GET PROJECT TASKS
+GET http://localhost:5000/api/tasks/project/projectId
+Authorization: Bearer token
+
+### GET DOCUMENT TASKS
+GET http://localhost:5000/api/tasks/document/docId
+Authorization: Bearer token
+
+### UPDATE TASK
+PUT http://localhost:5000/api/tasks/taskId
+Authorization: Bearer token
+Content-Type: application/json
+
+{
+  "title": "Updated Task",
+  "status": "done"
+}
+
+### DELETE TASK
+DELETE http://localhost:5000/api/tasks/taskId
+Authorization: Bearer token

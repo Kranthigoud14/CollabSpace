@@ -1,0 +1,36 @@
+### CREATE DOCUMENT
+POST http://localhost:5000/api/documents
+Authorization: Bearer 
+Content-Type: application/json
+
+{
+  "title": "My Doc",
+  "content": "Hello world",
+  "project": "projectId"
+}
+
+### GET MY DOCUMENTS
+GET http://localhost:5000/api/documents/my
+Authorization: Bearer token
+
+### GET ALL DOCUMENTS
+GET http://localhost:5000/api/documents
+Authorization: Bearer token
+
+### GET DOCUMENT BY ID
+GET http://localhost:5000/api/documents/docId
+Authorization: Bearer token
+
+### UPDATE DOCUMENT (OWNER + EDITOR)
+PUT http://localhost:5000/api/documents/docId
+Authorization: Bearer token
+Content-Type: application/json
+
+{
+  "title": "Updated Doc",
+  "content": "Updated content"
+}
+
+### DELETE DOCUMENT (OWNER/EDITOR ONLY)
+DELETE http://localhost:5000/api/documents/docId
+Authorization: Bearer token

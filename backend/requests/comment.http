@@ -1,0 +1,39 @@
+### Create Comment
+POST http://localhost:5000/api/comments
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2YTFkYWE0NDg2Yjc0ZDc1NWE4NDU2NjAiLCJpYXQiOjE3ODExNTM5MzYsImV4cCI6MTc4MTc1ODczNn0.5_GEB7fqPjXkp7j0bMog_Zu_OrKrCIimW1wgt5K4bNY
+
+{
+  "document": "6a212831b32f19157ebdf096",
+  "text": "Please add more examples here."
+}
+
+###
+
+### Get Comments Of Document
+GET http://localhost:5000/api/comments/document/6a212831b32f19157ebdf096
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2YTFkYWE0NDg2Yjc0ZDc1NWE4NDU2NjAiLCJpYXQiOjE3ODExNTM5MzYsImV4cCI6MTc4MTc1ODczNn0.5_GEB7fqPjXkp7j0bMog_Zu_OrKrCIimW1wgt5K4bNY
+
+###
+
+### Get Single Comment
+GET http://localhost:5000/api/comments/COMMENT_ID
+Authorization: Bearer YOUR_TOKEN
+
+###
+
+### Update Comment
+PUT http://localhost:5000/api/comments/COMMENT_ID
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN
+
+{
+  "text": "Updated comment",
+  "resolved": true
+}
+
+###
+
+### Delete Comment
+DELETE http://localhost:5000/api/comments/COMMENT_ID
+Authorization: Bearer YOUR_TOKEN

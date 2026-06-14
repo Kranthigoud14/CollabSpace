@@ -1,0 +1,31 @@
+### SUMMARIZE
+POST http://localhost:5000/api/ai/summarize
+Content-Type: application/json
+
+{
+  "content": "This project is a collaborative document editor with AI features."
+}
+
+### TASKS
+POST http://localhost:5000/api/ai/tasks
+Content-Type: application/json
+
+{
+  "content": "Build auth, real-time editor, task system, AI integration."
+}
+
+### CHAT
+POST http://localhost:5000/api/ai/chat
+Content-Type: application/json
+
+{
+  "question": "How to improve my backend project?"
+}
+###
+
+POST http://localhost:5000/api/ai/chat
+Content-Type: application/json
+
+{
+  "question": "what is spirutuality?"
+}
