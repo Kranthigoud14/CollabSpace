@@ -2,13 +2,17 @@ import { io } from "socket.io-client";
 
 let socket = null;
 
-export const connect = (url = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000", opts = {}) => {
+const SOCKET_URL =
+  import.meta.env.VITE_SOCKET_URL ||
+  "https://collabspace-iuji.onrender.com";
+
+export const connect = (opts = {}) => {
   if (socket) return socket;
 
   const token = localStorage.getItem("token");
 
   try {
-    socket = io(url, {
+    socket = io(SOCKET_URL, {
       withCredentials: true,
       transports: ["websocket", "polling"],
       auth: {
@@ -18,14 +22,18 @@ export const connect = (url = import.meta.env.VITE_SOCKET_URL || "http://localho
     });
 
     socket.on("connect", () => {
-      console.debug("socket connected", socket.id);
+      console.debug("socket connected:", socket.id);
     });
 
     socket.on("disconnect", (reason) => {
-      console.debug("socket disconnected", reason);
+      console.debug("socket disconnected:", reason);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("socket connect error:", err.message);
     });
   } catch (err) {
-    console.error("socket connect error", err);
+    console.error("socket init error:", err);
   }
 
   return socket;
