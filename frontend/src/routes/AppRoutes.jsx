@@ -5,8 +5,8 @@ import Register from "../auth/Register";
 import Home from "../pages/Home";
 
 import Dashboard from "../app/dashboard/Dashboard";
-import Projects from "../app/Projects/Projects";
-import ProjectDetails from "../app/Projects/ProjectDetails";
+import Projects from "../app/projects/projects";
+import ProjectDetails from "../app/projects/projectDetails";
 import Documents from "../app/documents/Documents";
 import DocumentEditor from "../app/documents/DocumentEditor";
 import Tasks from "../app/tasks/Tasks";
