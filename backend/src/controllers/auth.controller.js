@@ -6,8 +6,6 @@ import generateToken from "../utils/generateToken.js";
 // =========================
 export const registerUser = async (req, res) => {
   try {
-    console.log("REGISTER BODY:", req.body); // ✅ DEBUG ADDED
-
     const { name, email, password } = req.body;
 
     const userExists = await User.findOne({ email });
@@ -42,10 +40,7 @@ export const registerUser = async (req, res) => {
       },
       token: generateToken(user._id),
     });
-
   } catch (error) {
-    console.error("REGISTER ERROR:", error); // (optional but useful)
-
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -89,7 +84,6 @@ export const loginUser = async (req, res) => {
       },
       token: generateToken(user._id),
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -117,7 +111,6 @@ export const getProfile = async (req, res) => {
       success: true,
       user,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -136,7 +129,6 @@ export const logoutUser = async (req, res) => {
       success: true,
       message: "Logged out successfully",
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
