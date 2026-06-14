@@ -7,34 +7,30 @@ const SOCKET_URL =
   "https://collabspace-iuji.onrender.com";
 
 export const connect = (opts = {}) => {
-  if (socket) return socket;
-
   const token = localStorage.getItem("token");
 
-  try {
-    socket = io(SOCKET_URL, {
-      withCredentials: true,
-      transports: ["websocket", "polling"],
-      auth: {
-        token: token || "",
-      },
-      ...opts,
-    });
+  if (socket && socket.connected) return socket;
 
-    socket.on("connect", () => {
-      console.debug("socket connected:", socket.id);
-    });
+  socket = io(SOCKET_URL, {
+    withCredentials: true,
+    transports: ["websocket", "polling"],
+    auth: {
+      token: token || "",
+    },
+    ...opts,
+  });
 
-    socket.on("disconnect", (reason) => {
-      console.debug("socket disconnected:", reason);
-    });
+  socket.on("connect", () => {
+    console.debug("socket connected:", socket.id);
+  });
 
-    socket.on("connect_error", (err) => {
-      console.error("socket connect error:", err.message);
-    });
-  } catch (err) {
-    console.error("socket init error:", err);
-  }
+  socket.on("disconnect", (reason) => {
+    console.debug("socket disconnected:", reason);
+  });
+
+  socket.on("connect_error", (err) => {
+    console.error("socket connect error:", err.message);
+  });
 
   return socket;
 };
@@ -43,6 +39,7 @@ export const getSocket = () => socket;
 
 export const disconnect = () => {
   if (socket) {
+    socket.removeAllListeners();
     socket.disconnect();
     socket = null;
   }
