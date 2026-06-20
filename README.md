@@ -176,6 +176,3 @@ collabspace/
 * Export to PDF and DOCX
 * Audit Logs
 * Activity Timelines
-## License
-
-This project is intended for educational, portfolio, and collaborative workspace development purpose
