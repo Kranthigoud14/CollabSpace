@@ -62,7 +62,6 @@ The platform combines concepts from Google Docs, Notion, and ClickUp into a unif
 
 * Inline Comments
 * Discussion Threads
-* Collaboration Feedback
 
 ### Notifications
 
