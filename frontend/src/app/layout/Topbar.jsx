@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import NotificationBell from "../../components/NotificationBell";
 import { useAuthStore } from "../../store/auth.store";
