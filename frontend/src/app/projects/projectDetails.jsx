@@ -6,6 +6,8 @@ import { useTaskStore } from "../../store/task.store";
 import { useAuthStore } from "../../store/auth.store";
 import api from "../../api/axios";
 import UploadDocumentModal from "../../components/UploadDocumentModal";
+import { exportDocument } from "../../api/Document.api";
+import { pushToast } from "../../components/ui/Toast";
 
 function ProjectDetails() {
   const { id } = useParams();
@@ -14,12 +16,17 @@ function ProjectDetails() {
   const { user } = useAuthStore();
   const safeUser = user || JSON.parse(localStorage.getItem("user")) || {};
 
-  const { documents, fetchMyDocs, addDocument } = useDocumentStore();
+  const { documents, fetchMyDocs, addDocument, renameDocument, removeDocument } = useDocumentStore();
   const { tasks, fetchProjectTasks, addTask, editTask } = useTaskStore();
 
   const [project, setProject] = useState(null);
   const [docTitle, setDocTitle] = useState("");
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [deleteDocTarget, setDeleteDocTarget] = useState(null);
+  const [deletingDoc, setDeletingDoc] = useState(false);
+  const [renameDocTarget, setRenameDocTarget] = useState(null);
+  const [renamingDoc, setRenamingDoc] = useState(false);
+  const [renameDocTitle, setRenameDocTitle] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDesc, setTaskDesc] = useState("");
   const [taskAssignee, setTaskAssignee] = useState("");
@@ -64,12 +71,71 @@ function ProjectDetails() {
       });
       setDocTitle("");
       const doc = res?.document || res?.data || res || null;
+      pushToast("Project document created ✓");
       if (doc?._id) {
         navigate(`/app/documents/${doc._id}`);
       }
       fetchMyDocs();
     } catch (err) {
-      console.log("create doc error:", err);
+      console.error("create doc error:", err);
+      pushToast(err?.response?.data?.message || "Failed to create document.");
+    }
+  };
+
+  const handleDeleteDoc = async () => {
+    if (!deleteDocTarget) return;
+    try {
+      setDeletingDoc(true);
+      await removeDocument(deleteDocTarget._id);
+      pushToast(`"${deleteDocTarget.title}" deleted ✓`);
+      setDeleteDocTarget(null);
+      fetchMyDocs();
+    } catch (err) {
+      console.error("Delete doc error:", err);
+      pushToast(err?.response?.data?.message || "Failed to delete document.");
+    } finally {
+      setDeletingDoc(false);
+    }
+  };
+
+  const handleRenameDoc = async (e) => {
+    if (e) e.preventDefault();
+    if (!renameDocTarget || !renameDocTitle.trim()) return;
+    try {
+      setRenamingDoc(true);
+      await renameDocument(renameDocTarget._id, renameDocTitle.trim());
+      pushToast("Document renamed successfully ✓");
+      setRenameDocTarget(null);
+      fetchMyDocs();
+    } catch (err) {
+      console.error("Rename doc error:", err);
+      pushToast(err?.response?.data?.message || "Failed to rename document.");
+    } finally {
+      setRenamingDoc(false);
+    }
+  };
+
+  const handleExportDoc = async (doc, format) => {
+    try {
+      pushToast(`Preparing ${format.toUpperCase()} export for "${doc.title}"...`);
+      const blob = await exportDocument(doc._id, {
+        format,
+        content: doc.content || "",
+        title: doc.title || "Document",
+      });
+
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `${doc.title || "document"}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      pushToast(`Export complete: ${doc.title}.${format} ✓`);
+    } catch (err) {
+      console.error("Export error:", err);
+      pushToast(err?.response?.data?.message || "Failed to export document.");
     }
   };
 
@@ -241,19 +307,79 @@ function ProjectDetails() {
                   </div>
                 ) : (
                   filteredDocs.map((doc) => (
-                    <Link
+                    <div
                       key={doc._id}
-                      to={`/app/documents/${doc._id}`}
-                      className="p-4 bg-slate-900/30 rounded-xl border border-slate-855 hover:border-indigo-500/30 hover:bg-slate-900/60 transition-all duration-300 group"
+                      className="p-4 bg-slate-900/40 rounded-xl border border-slate-800 hover:border-indigo-500/40 transition-all duration-200 group flex flex-col justify-between"
                     >
-                      <h4 className="text-white font-bold text-sm truncate group-hover:text-indigo-400 transition-colors">
-                        {doc.title || "Untitled Document"}
-                      </h4>
-                      <p className="text-slate-500 text-xs mt-1">
-                        Updated {new Date(doc.updatedAt || doc.createdAt).toLocaleDateString()}
-                      </p>
-                      <span className="text-[10px] text-indigo-400 font-semibold block mt-3">Open Editor →</span>
-                    </Link>
+                      <div className="flex items-start justify-between gap-2">
+                        <Link
+                          to={`/app/documents/${doc._id}`}
+                          className="flex-1 min-w-0"
+                        >
+                          <h4 className="text-white font-bold text-sm truncate group-hover:text-indigo-400 transition-colors">
+                            {doc.title || "Untitled Document"}
+                          </h4>
+                          <p className="text-slate-500 text-xs mt-1">
+                            Updated {new Date(doc.updatedAt || doc.createdAt).toLocaleDateString()}
+                          </p>
+                        </Link>
+                      </div>
+
+                      {/* Action buttons row */}
+                      <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-800/60 text-xs">
+                        <Link
+                          to={`/app/documents/${doc._id}`}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold"
+                        >
+                          Open Editor →
+                        </Link>
+
+                        <div className="flex items-center gap-2">
+                          {/* Export dropdown */}
+                          <button
+                            type="button"
+                            onClick={() => handleExportDoc(doc, "pdf")}
+                            title="Export PDF"
+                            className="text-[10px] text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded hover:bg-slate-800"
+                          >
+                            PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExportDoc(doc, "docx")}
+                            title="Export Word"
+                            className="text-[10px] text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded hover:bg-slate-800"
+                          >
+                            DOCX
+                          </button>
+
+                          {!isViewer && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRenameDocTarget(doc);
+                                setRenameDocTitle(doc.title);
+                              }}
+                              title="Rename Document"
+                              className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium px-1.5 py-0.5 rounded hover:bg-slate-800"
+                            >
+                              Rename
+                            </button>
+                          )}
+
+                          {["owner", "admin"].includes(myRole) && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteDocTarget(doc)}
+                              title="Delete Document"
+                              className="text-[10px] text-red-400 hover:text-red-300 font-medium px-1.5 py-0.5 rounded hover:bg-red-500/10"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   ))
                 )}
               </div>
@@ -443,11 +569,79 @@ function ProjectDetails() {
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
         projectId={id}
+        projectName={project?.name}
         onSuccess={(newDoc) => {
           fetchMyDocs();
           if (newDoc?._id) navigate(`/app/documents/${newDoc._id}`);
         }}
       />
+
+      {/* Delete Document Confirmation Modal */}
+      {deleteDocTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-slate-950 border border-red-900/40 rounded-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-white">Delete Document?</h3>
+            <p className="text-slate-400 text-sm">
+              Are you sure you want to permanently delete{" "}
+              <span className="text-white font-semibold">"{deleteDocTarget.title}"</span> from this project?
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteDocTarget(null)}
+                disabled={deletingDoc}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteDoc}
+                disabled={deletingDoc}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                {deletingDoc ? "Deleting..." : "Delete Document"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Document Modal */}
+      {renameDocTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+          <form
+            onSubmit={handleRenameDoc}
+            className="w-full max-w-md bg-slate-950 border border-slate-800 rounded-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200"
+          >
+            <h3 className="text-lg font-bold text-white">Rename Document</h3>
+            <input
+              autoFocus
+              value={renameDocTitle}
+              onChange={(e) => setRenameDocTitle(e.target.value)}
+              placeholder="Document title..."
+              className="w-full px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white text-sm outline-none focus:border-indigo-500 transition-all"
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setRenameDocTarget(null)}
+                disabled={renamingDoc}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={renamingDoc || !renameDocTitle.trim()}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                {renamingDoc ? "Saving..." : "Save Title"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </AppLayout>
   );
 }

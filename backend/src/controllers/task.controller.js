@@ -297,15 +297,15 @@ export const deleteTask = async (req, res) => {
     if (task.project) {
       const proj = await Project.findById(task.project);
 
-      const role = requireProjectAccess(proj, req.user.userId);
+      const role = getUserRole(proj, req.user.userId);
 
       if (!role) {
         return res.status(403).json({ message: "Not a project member" });
       }
 
-      if (role !== "owner" && role !== "admin") {
+      if (!["owner", "admin", "editor"].includes(role)) {
         return res.status(403).json({
-          message: "Only owner or admin can delete task",
+          message: "Only owner, admin, or editor can delete task",
         });
       }
     }

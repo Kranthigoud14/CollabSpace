@@ -66,12 +66,12 @@ router.put(
 );
 
 /**
- * DELETE TASK → OWNER / ADMIN ONLY
+ * DELETE TASK → OWNER / ADMIN / EDITOR
  */
 router.delete(
   "/:id",
   authMiddleware,
-  requireRole(["owner", "admin"]),
+  requireRole(["owner", "admin", "editor"]),
   deleteTask
 );
 

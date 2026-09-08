@@ -156,18 +156,22 @@ function Tasks() {
 
   // Helper to check if task can be edited
   const getCanEditTask = (task) => {
+    if (!task) return false;
     const taskProjId = typeof task.project === "string" ? task.project : task.project?._id;
-    const taskProj = projects?.find((p) => p._id === taskProjId);
+    if (!taskProjId) return true;
+    const taskProj = projects?.find((p) => p._id?.toString() === taskProjId?.toString());
     const role = getProjectUserRole(taskProj);
     return ["owner", "admin", "editor"].includes(role);
   };
 
   // Helper to check if task can be deleted
   const getCanDeleteTask = (task) => {
+    if (!task) return false;
     const taskProjId = typeof task.project === "string" ? task.project : task.project?._id;
-    const taskProj = projects?.find((p) => p._id === taskProjId);
+    if (!taskProjId) return true;
+    const taskProj = projects?.find((p) => p._id?.toString() === taskProjId?.toString());
     const role = getProjectUserRole(taskProj);
-    return ["owner", "admin"].includes(role);
+    return ["owner", "admin", "editor"].includes(role);
   };
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -499,23 +503,27 @@ function Tasks() {
             <option value="completed" className="bg-slate-950 text-emerald-400">Completed</option>
           </select>
 
-          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            {/* Edit — owner/admin/editor */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {/* Edit */}
             {canEdit && (
               <button
+                type="button"
                 onClick={() => openEditModal(task)}
-                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium"
+                title="Edit task"
+                className="px-2 py-1 text-[11px] font-semibold text-slate-400 hover:text-indigo-400 hover:bg-slate-800/80 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
               >
-                Edit
+                <span>✏️</span> Edit
               </button>
             )}
-            {/* Delete — owner/admin */}
+            {/* Delete */}
             {canDelete && (
               <button
+                type="button"
                 onClick={() => setDeleteConfirm(task._id)}
-                className="text-[10px] text-red-500 hover:text-red-400 font-medium"
+                title="Delete task"
+                className="px-2 py-1 text-[11px] font-semibold text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
               >
-                Delete
+                <span>🗑️</span> Delete
               </button>
             )}
           </div>

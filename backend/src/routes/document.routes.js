@@ -10,6 +10,7 @@ import {
   duplicateDocument,
   renameDocument,
   uploadDocument,
+  extractDocumentContent,
   exportDocument,
 } from "../controllers/document.controller.js";
 
@@ -23,6 +24,11 @@ const upload = multer({
 });
 
 const router = express.Router();
+
+/**
+ * EXTRACT CONTENT (WITHOUT DIRECT PERSISTENCE)
+ */
+router.post("/extract", authMiddleware, upload.single("file"), extractDocumentContent);
 
 /**
  * UPLOAD DOCUMENT (PDF / DOCX / TXT)

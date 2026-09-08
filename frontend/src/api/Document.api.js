@@ -56,6 +56,14 @@ export const uploadDocument = async (formData) => {
   return res.data;
 };
 
+// EXTRACT CONTENT FROM DOCUMENT (WITHOUT PERSISTING)
+export const extractDocument = async (formData) => {
+  const res = await api.post("/documents/extract", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
 // EXPORT DOCUMENT (PDF / DOCX / TXT)
 export const exportDocument = async (id, { format = "txt", content, title }) => {
   const res = await api.post(

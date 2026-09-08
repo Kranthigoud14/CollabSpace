@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import AppLayout from "../layout/AppLayout";
 import { useDocumentStore } from "../../store/document.store";
+import { useProjectStore } from "../../store/project.store";
 import { useAuthStore } from "../../store/auth.store";
 import { useNavigate } from "react-router-dom";
 import UploadDocumentModal from "../../components/UploadDocumentModal";
+import { exportDocument } from "../../api/Document.api";
+import { pushToast } from "../../components/ui/Toast";
 
 /* ─────────────────────────────────────────────
    Helpers
@@ -36,28 +39,13 @@ function wordCount(html) {
 function DeleteModal({ doc, onCancel, onConfirm, deleting }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onCancel}
       />
-      {/* Modal Card */}
       <div className="relative z-10 w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/60 rounded-2xl p-7 shadow-2xl shadow-black/60">
-        {/* Icon */}
         <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-500/10 border border-red-500/20 mx-auto mb-5">
-          <svg
-            className="w-7 h-7 text-red-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
+          <span className="text-2xl">🗑️</span>
         </div>
 
         <h2 className="text-xl font-bold text-white text-center">
@@ -77,43 +65,20 @@ function DeleteModal({ doc, onCancel, onConfirm, deleting }) {
 
         <div className="mt-7 flex gap-3">
           <button
+            type="button"
             onClick={onCancel}
             disabled={deleting}
-            className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm font-semibold hover:border-slate-500 hover:text-white transition-all"
+            className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm font-semibold hover:border-slate-500 hover:text-white transition-all cursor-pointer"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={onConfirm}
             disabled={deleting}
-            className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/30"
+            className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/30 cursor-pointer"
           >
-            {deleting ? (
-              <>
-                <svg
-                  className="w-4 h-4 animate-spin"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8H4z"
-                  />
-                </svg>
-                Deleting...
-              </>
-            ) : (
-              "Delete"
-            )}
+            {deleting ? "Deleting..." : "Delete"}
           </button>
         </div>
       </div>
@@ -148,16 +113,18 @@ function RenameModal({ doc, onCancel, onConfirm, saving }) {
         />
         <div className="mt-5 flex gap-3">
           <button
+            type="button"
             onClick={onCancel}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm font-semibold hover:border-slate-500 hover:text-white transition-all"
+            className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm font-semibold hover:border-slate-500 hover:text-white transition-all cursor-pointer"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={() => title.trim() && onConfirm(title.trim())}
             disabled={saving || !title.trim()}
-            className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
+            className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             {saving ? "Saving..." : "Rename"}
           </button>
@@ -168,13 +135,12 @@ function RenameModal({ doc, onCancel, onConfirm, saving }) {
 }
 
 /* ─────────────────────────────────────────────
-   Three-dot action menu
+   Three-dot action menu with Export
 ───────────────────────────────────────────── */
-function DocMenu({ doc, onOpen, onRename, onDuplicate, onDelete, isOwner }) {
+function DocMenu({ doc, onOpen, onRename, onDuplicate, onDelete, onExport, canManage }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -183,68 +149,105 @@ function DocMenu({ doc, onOpen, onRename, onDuplicate, onDelete, isOwner }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const menuItems = [
-    {
-      label: "Open Editor",
-      icon: "↗",
-      onClick: onOpen,
-      className: "text-slate-200 hover:text-white hover:bg-slate-800",
-    },
-    {
-      label: "Rename",
-      icon: "✏️",
-      onClick: onRename,
-      show: isOwner,
-      className: "text-slate-200 hover:text-white hover:bg-slate-800",
-    },
-    {
-      label: "Duplicate",
-      icon: "📋",
-      onClick: onDuplicate,
-      show: isOwner,
-      className: "text-slate-200 hover:text-white hover:bg-slate-800",
-    },
-    {
-      label: "Delete",
-      icon: "🗑️",
-      onClick: onDelete,
-      show: isOwner,
-      className: "text-red-400 hover:text-red-300 hover:bg-red-500/10",
-      separator: true,
-    },
-  ];
-
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
+        type="button"
         onClick={() => setOpen((p) => !p)}
-        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all text-lg font-bold leading-none"
-        title="More actions"
+        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all text-lg font-bold leading-none cursor-pointer"
+        title="Document options"
       >
         ⋮
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 z-50 w-44 bg-slate-900 border border-slate-700/60 rounded-xl shadow-2xl shadow-black/60 overflow-hidden py-1">
-          {menuItems
-            .filter((m) => m.show !== false)
-            .map((item) => (
-              <div key={item.label}>
-                {item.separator && (
-                  <div className="my-1 border-t border-slate-800" />
-                )}
-                <button
-                  onClick={() => {
-                    item.onClick();
-                    setOpen(false);
-                  }}
-                  className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2.5 transition-all ${item.className}`}
-                >
-                  <span>{item.icon}</span>
-                  {item.label}
-                </button>
-              </div>
-            ))}
+        <div className="absolute right-0 top-10 z-50 w-48 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl shadow-black/80 overflow-hidden py-1">
+          <button
+            type="button"
+            onClick={() => {
+              onOpen();
+              setOpen(false);
+            }}
+            className="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer"
+          >
+            <span>↗</span> Open Editor
+          </button>
+
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => {
+                onRename();
+                setOpen(false);
+              }}
+              className="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer"
+            >
+              <span>✏️</span> Rename
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              onDuplicate();
+              setOpen(false);
+            }}
+            className="w-full text-left px-4 py-2.5 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer"
+          >
+            <span>📋</span> Duplicate
+          </button>
+
+          {/* Export Submenu Options */}
+          <div className="my-1 border-t border-slate-800" />
+          <div className="px-4 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Export As
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onExport("pdf");
+              setOpen(false);
+            }}
+            className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+          >
+            <span>📄</span> PDF (.pdf)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onExport("docx");
+              setOpen(false);
+            }}
+            className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+          >
+            <span>📝</span> Word (.docx)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onExport("txt");
+              setOpen(false);
+            }}
+            className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+          >
+            <span>🗒️</span> Plain Text (.txt)
+          </button>
+
+          {canManage && (
+            <>
+              <div className="my-1 border-t border-slate-800" />
+              <button
+                type="button"
+                onClick={() => {
+                  onDelete();
+                  setOpen(false);
+                }}
+                className="w-full text-left px-4 py-2.5 text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 cursor-pointer"
+              >
+                <span>🗑️</span> Delete
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -252,7 +255,7 @@ function DocMenu({ doc, onOpen, onRename, onDuplicate, onDelete, isOwner }) {
 }
 
 /* ─────────────────────────────────────────────
-   Document Card
+   Document Card Component
 ───────────────────────────────────────────── */
 function DocCard({
   doc,
@@ -261,10 +264,12 @@ function DocCard({
   onRename,
   onDuplicate,
   onDelete,
+  onExport,
 }) {
+  const isPersonal = !doc?.project;
   const isOwner =
-    doc?.createdBy?._id === currentUserId ||
-    doc?.createdBy === currentUserId;
+    doc?.createdBy?._id?.toString() === currentUserId?.toString() ||
+    doc?.createdBy?.toString() === currentUserId?.toString();
 
   const preview = doc?.content
     ? doc.content.replace(/<[^>]*>/g, " ").slice(0, 120)
@@ -278,7 +283,7 @@ function DocCard({
 
   return (
     <div
-      className="group relative bg-gradient-to-br from-slate-900/70 to-slate-950/80 backdrop-blur-md border border-slate-800/70 rounded-2xl p-5 hover:border-indigo-500/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[200px]"
+      className="group relative bg-gradient-to-br from-slate-900/70 to-slate-950/80 backdrop-blur-md border border-slate-800/70 rounded-2xl p-5 hover:border-indigo-500/40 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[200px]"
       onClick={() => onOpen()}
     >
       {/* Top row: title + menu */}
@@ -291,11 +296,11 @@ function DocCard({
           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
             {projectName ? (
               <span className="text-[9px] text-violet-400 font-bold px-2 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 uppercase tracking-wider">
-                {projectName}
+                📁 Project: {projectName}
               </span>
             ) : (
-              <span className="text-[9px] text-slate-500 font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700/50 uppercase tracking-wider">
-                Personal
+              <span className="text-[9px] text-slate-400 font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700/60 uppercase tracking-wider">
+                👤 Personal
               </span>
             )}
             {isOwner && (
@@ -308,33 +313,29 @@ function DocCard({
 
         <DocMenu
           doc={doc}
-          isOwner={isOwner}
+          canManage={isPersonal ? isOwner : true}
           onOpen={onOpen}
           onRename={onRename}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
+          onExport={onExport}
         />
       </div>
 
-      {/* Preview */}
-      <p className="text-slate-500 text-xs mt-3 leading-relaxed line-clamp-2 flex-1">
+      {/* Content Preview */}
+      <p className="text-slate-400 text-xs mt-3 leading-relaxed line-clamp-2 flex-1">
         {preview}
       </p>
 
-      {/* Meta row */}
+      {/* Metadata */}
       <div className="mt-4 pt-3 border-t border-slate-800/60 space-y-1">
-        <div className="flex items-center justify-between">
-          <span className="text-slate-500 text-[10px]">
-            🕒 Updated {timeAgo(doc?.updatedAt || doc?.createdAt)}
-          </span>
-          <span className="text-slate-600 text-[10px]">
-            {words} {words === 1 ? "word" : "words"}
-          </span>
+        <div className="flex items-center justify-between text-[10px] text-slate-500">
+          <span>🕒 {timeAgo(doc?.updatedAt || doc?.createdAt)}</span>
+          <span>{words} {words === 1 ? "word" : "words"}</span>
         </div>
-        {creatorName && (
-          <div className="text-slate-600 text-[10px]">
-            By{" "}
-            <span className="text-slate-400 font-medium">{creatorName}</span>
+        {creatorName && !isPersonal && (
+          <div className="text-slate-500 text-[10px]">
+            Created by: <span className="text-slate-400 font-medium">{creatorName}</span>
           </div>
         )}
       </div>
@@ -343,7 +344,7 @@ function DocCard({
 }
 
 /* ─────────────────────────────────────────────
-   Skeleton Loader
+   Skeleton Card
 ───────────────────────────────────────────── */
 function SkeletonCard() {
   return (
@@ -360,33 +361,6 @@ function SkeletonCard() {
       </div>
     </div>
   );
-}
-
-/* ─────────────────────────────────────────────
-   Toast Notification (inline, lightweight)
-───────────────────────────────────────────── */
-function useToast() {
-  const [toast, setToast] = useState(null);
-
-  const show = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const Toast = toast ? (
-    <div
-      className={`fixed bottom-6 right-6 z-[200] flex items-center gap-3 px-5 py-3.5 rounded-xl border shadow-2xl text-sm font-semibold transition-all animate-fade-in ${
-        toast.type === "success"
-          ? "bg-emerald-900/80 border-emerald-500/30 text-emerald-300"
-          : "bg-red-900/80 border-red-500/30 text-red-300"
-      }`}
-    >
-      <span>{toast.type === "success" ? "✓" : "✕"}</span>
-      {toast.message}
-    </div>
-  ) : null;
-
-  return { show, Toast };
 }
 
 /* ─────────────────────────────────────────────
@@ -408,10 +382,13 @@ function Documents() {
     loading,
   } = useDocumentStore();
 
+  const { projects, fetchProjects } = useProjectStore();
+
+  const [activeTab, setActiveTab] = useState("personal"); // "personal" | "project"
+  const [selectedProjectId, setSelectedProjectId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [creating, setCreating] = useState(false);
-  const [filter, setFilter] = useState("all"); // "all" | "personal" | "project"
 
   // Modals
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -420,171 +397,256 @@ function Documents() {
   const [renaming, setRenaming] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
-  const { show: showToast, Toast } = useToast();
-
   useEffect(() => {
     fetchMyDocs();
+    fetchProjects();
   }, []);
 
-  /* ── Create ── */
+  const personalDocs = (documents || []).filter((d) => !d?.project);
+  const projectDocs = (documents || []).filter((d) => !!d?.project);
+
+  /* ── Filtered list according to tab and search ── */
+  const currentList = activeTab === "personal" ? personalDocs : projectDocs;
+
+  const filteredDocs = currentList.filter((doc) => {
+    // Project filter if on project tab
+    if (activeTab === "project" && selectedProjectId !== "all") {
+      const pId = typeof doc?.project === "string" ? doc.project : doc?.project?._id;
+      if (pId !== selectedProjectId) return false;
+    }
+    // Search query
+    const matchSearch = (doc?.title || "Untitled")
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    return matchSearch;
+  });
+
+  const sortedDocs = [...filteredDocs].sort(
+    (a, b) =>
+      new Date(b.updatedAt || b.createdAt) -
+      new Date(a.updatedAt || a.createdAt)
+  );
+
+  /* ── Create Document Handler ── */
   const handleCreateDoc = async (e) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
     try {
       setCreating(true);
-      const res = await addDocument({ title: newTitle.trim(), content: "", project: null });
+      const targetProject =
+        activeTab === "project" && selectedProjectId !== "all"
+          ? selectedProjectId
+          : activeTab === "project" && projects.length > 0
+          ? projects[0]._id
+          : null;
+
+      const res = await addDocument({
+        title: newTitle.trim(),
+        content: "",
+        project: targetProject,
+      });
+
       setNewTitle("");
       const doc = res?.document || res?.data || res || null;
-      if (doc?._id) navigate(`/app/documents/${doc._id}`);
+      pushToast("Document created successfully ✓");
+      if (doc?._id) {
+        navigate(`/app/documents/${doc._id}`);
+      }
       fetchMyDocs();
     } catch (err) {
       console.error("Create doc error:", err);
-      showToast("Failed to create document", "error");
+      pushToast(err?.response?.data?.message || "Failed to create document.");
     } finally {
       setCreating(false);
     }
   };
 
-  /* ── Delete ── */
+  /* ── Delete Document Handler ── */
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
       await removeDocument(deleteTarget._id);
-      showToast(`"${deleteTarget.title}" deleted`);
+      pushToast(`"${deleteTarget.title}" deleted ✓`);
       setDeleteTarget(null);
-    } catch {
-      showToast("Failed to delete document", "error");
+    } catch (err) {
+      console.error("Delete doc error:", err);
+      pushToast(err?.response?.data?.message || "Failed to delete document.");
     } finally {
       setDeleting(false);
     }
   };
 
-  /* ── Rename ── */
+  /* ── Rename Document Handler ── */
   const handleRename = async (newName) => {
     if (!renameTarget) return;
     try {
       setRenaming(true);
       await renameDocument(renameTarget._id, newName);
-      showToast("Document renamed");
+      pushToast("Document renamed successfully ✓");
       setRenameTarget(null);
-    } catch {
-      showToast("Failed to rename document", "error");
+    } catch (err) {
+      console.error("Rename doc error:", err);
+      pushToast(err?.response?.data?.message || "Failed to rename document.");
     } finally {
       setRenaming(false);
     }
   };
 
-  /* ── Duplicate ── */
+  /* ── Duplicate Document Handler ── */
   const handleDuplicate = async (doc) => {
     try {
       await duplicateDocument(doc._id);
-      showToast(`Duplicated "${doc.title}"`);
+      pushToast(`Duplicated "${doc.title}" ✓`);
       fetchMyDocs();
-    } catch {
-      showToast("Failed to duplicate document", "error");
+    } catch (err) {
+      console.error("Duplicate doc error:", err);
+      pushToast(err?.response?.data?.message || "Failed to duplicate document.");
     }
   };
 
-  /* ── Filter ── */
-  const filtered = (documents || []).filter((doc) => {
-    const matchSearch = (doc?.title || "Untitled")
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    return matchSearch && !doc?.project;
-  });
+  /* ── Export Document Handler ── */
+  const handleExport = async (doc, format) => {
+    try {
+      pushToast(`Preparing ${format.toUpperCase()} export for "${doc.title}"...`);
+      const blob = await exportDocument(doc._id, {
+        format,
+        content: doc.content || "",
+        title: doc.title || "Document",
+      });
 
-  const sortedDocs = [...filtered].sort(
-    (a, b) =>
-      new Date(b.updatedAt || b.createdAt) -
-      new Date(a.updatedAt || a.createdAt)
-  );
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `${doc.title || "document"}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      pushToast(`Export complete: ${doc.title}.${format} ✓`);
+    } catch (err) {
+      console.error("Export error:", err);
+      pushToast(err?.response?.data?.message || "Failed to export document.");
+    }
+  };
 
-  const personalCount = (documents || []).filter((d) => !d?.project).length;
-  const projectCount = (documents || []).filter((d) => !!d?.project).length;
+  const uploadProjectId =
+    activeTab === "project"
+      ? selectedProjectId !== "all"
+        ? selectedProjectId
+        : projects?.[0]?._id || null
+      : null;
+
+  const uploadProjectName =
+    activeTab === "project"
+      ? projects.find((p) => p._id === uploadProjectId)?.name
+      : null;
 
   return (
     <AppLayout>
       <div className="space-y-7 max-w-7xl mx-auto">
-        {/* ── Header ── */}
+        {/* ── Page Header ── */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-extrabold text-white tracking-tight">
-              Personal Documents
+              Documents
             </h1>
             <p className="text-slate-400 mt-1 text-sm font-medium">
-              {personalCount} document{personalCount !== 1 ? "s" : ""}
+              Create, edit, extract, and export your personal and project documents.
             </p>
           </div>
 
-          {/* Create form & Upload */}
-          <div className="flex items-center gap-2 w-full md:w-auto">
+          {/* Create form & Upload action */}
+          <div className="flex items-center gap-2.5 w-full md:w-auto flex-wrap">
             <form
               onSubmit={handleCreateDoc}
-              className="flex gap-2 w-full md:w-auto"
+              className="flex gap-2 w-full sm:w-auto"
             >
               <input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="New document title..."
-                className="flex-1 md:w-56 px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 transition-all"
+                placeholder={
+                  activeTab === "personal"
+                    ? "New personal document..."
+                    : "New project document..."
+                }
+                className="flex-1 sm:w-56 px-4 py-2.5 rounded-xl bg-slate-900/70 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 transition-all"
               />
               <button
                 type="submit"
                 disabled={creating || !newTitle.trim()}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-900/30"
               >
-                {creating ? (
-                  <>
-                    <svg
-                      className="w-3.5 h-3.5 animate-spin"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v8H4z"
-                      />
-                    </svg>
-                    Creating...
-                  </>
-                ) : (
-                  <>+ Create</>
-                )}
+                {creating ? "Creating..." : "+ Create"}
               </button>
             </form>
+
             <button
               type="button"
               onClick={() => setShowUploadModal(true)}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2"
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer"
             >
-              <span>📄</span> Upload
+              <span>📄</span> Upload / Extract
             </button>
           </div>
         </div>
 
-        {/* ── Search Bar ── */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search personal documents..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-900/50 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 transition-all"
-            />
-            <span className="absolute left-3.5 top-2.5 text-slate-500 text-sm">
-              🔍
-            </span>
+        {/* ── Tab Switcher: Personal vs Project ── */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+          <div className="flex items-center gap-2 p-1 bg-slate-950/60 border border-slate-800/90 rounded-2xl w-fit">
+            <button
+              type="button"
+              onClick={() => setActiveTab("personal")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === "personal"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>👤</span> Personal Documents ({personalDocs.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("project")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === "project"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>📁</span> Project Documents ({projectDocs.length})
+            </button>
+          </div>
+
+          {/* Search bar & Project filter */}
+          <div className="flex items-center gap-2.5 flex-1 max-w-md">
+            {activeTab === "project" && projects.length > 0 && (
+              <select
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="px-3 py-2 bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl outline-none focus:border-indigo-500 cursor-pointer"
+              >
+                <option value="all">All Projects</option>
+                {projects.map((p) => (
+                  <option key={p._id} value={p._id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <div className="relative flex-1">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={`Search ${activeTab} documents...`}
+                className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-900/60 border border-slate-800 text-white placeholder-slate-500 text-xs outline-none focus:border-indigo-500 transition-all"
+              />
+              <span className="absolute left-3 top-2.5 text-slate-500 text-xs">
+                🔍
+              </span>
+            </div>
           </div>
         </div>
 
@@ -596,26 +658,38 @@ function Documents() {
             ))}
           </div>
         ) : sortedDocs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-slate-800 rounded-2xl">
-            <div className="text-6xl mb-4">📄</div>
-            <h3 className="text-xl font-bold text-slate-300 mb-2">
-              No documents found
-            </h3>
-            <p className="text-slate-500 text-sm max-w-xs">
+          <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed border-slate-800/80 rounded-2xl bg-slate-950/20">
+            <div className="text-5xl mb-3">📄</div>
+            <h3 className="text-lg font-bold text-slate-300 mb-1">
               {searchQuery
-                ? "No documents match your search. Try a different keyword."
-                : filter !== "all"
-                ? `No ${filter} documents yet.`
-                : "Create your first document to get started."}
+                ? "No matching documents found"
+                : activeTab === "personal"
+                ? "No personal documents yet"
+                : "No project documents found"}
+            </h3>
+            <p className="text-slate-500 text-xs max-w-sm mb-5">
+              {searchQuery
+                ? "Try searching with a different keyword."
+                : activeTab === "personal"
+                ? "Create your first personal document or upload a file to extract its content."
+                : "Select a project workspace or create a document to collaborate with your team."}
             </p>
-            {!searchQuery && filter === "all" && (
+            <div className="flex gap-2">
               <button
-                onClick={() => document.querySelector("input[placeholder='New document title...']")?.focus()}
-                className="mt-6 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl transition-all"
+                type="button"
+                onClick={() => document.querySelector("input[placeholder*='document...']")?.focus()}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-indigo-900/30 cursor-pointer"
               >
-                + Create Document
+                + New Document
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => setShowUploadModal(true)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-all cursor-pointer"
+              >
+                📄 Upload / Extract
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -628,6 +702,7 @@ function Documents() {
                 onRename={() => setRenameTarget(doc)}
                 onDuplicate={() => handleDuplicate(doc)}
                 onDelete={() => setDeleteTarget(doc)}
+                onExport={(fmt) => handleExport(doc, fmt)}
               />
             ))}
           </div>
@@ -653,19 +728,17 @@ function Documents() {
         />
       )}
 
-      {/* ── Upload Modal ── */}
+      {/* ── Upload & Extract Modal ── */}
       <UploadDocumentModal
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
-        projectId={null}
+        projectId={uploadProjectId}
+        projectName={uploadProjectName}
         onSuccess={(newDoc) => {
           fetchMyDocs();
           if (newDoc?._id) navigate(`/app/documents/${newDoc._id}`);
         }}
       />
-
-      {/* ── Toast ── */}
-      {Toast}
     </AppLayout>
   );
 }

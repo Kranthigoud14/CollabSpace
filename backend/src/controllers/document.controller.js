@@ -107,6 +107,13 @@ export const updateDocument = async (req, res) => {
       }
 
       role = resolvedRole;
+    } else {
+      // Personal document authorization check
+      if (document.createdBy && document.createdBy.toString() !== req.user.userId.toString()) {
+        return res.status(403).json({
+          message: "Not authorized to update this personal document",
+        });
+      }
     }
 
     // ❌ viewer cannot update
@@ -179,6 +186,12 @@ export const deleteDocument = async (req, res) => {
       if (role !== "owner" && role !== "admin") {
         return res.status(403).json({
           message: "Only owner or admin can delete document",
+        });
+      }
+    } else {
+      if (document.createdBy && document.createdBy.toString() !== req.user.userId.toString()) {
+        return res.status(403).json({
+          message: "Only the owner can delete this personal document",
         });
       }
     }
@@ -263,6 +276,21 @@ export const getDocumentById = async (req, res) => {
 
     if (!document) {
       return res.status(404).json({ message: "Document not found" });
+    }
+
+    if (document.project) {
+      const project = await Project.findById(document.project);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      const role = getUserRole(project, req.user.userId);
+      if (!role) {
+        return res.status(403).json({ message: "Not authorized to access this project document" });
+      }
+    } else {
+      if (document.createdBy && document.createdBy.toString() !== req.user.userId.toString()) {
+        return res.status(403).json({ message: "Not authorized to access this personal document" });
+      }
     }
 
     res.json(document);
@@ -436,6 +464,44 @@ export const uploadDocument = async (req, res) => {
     return res.status(400).json({
       success: false,
       message: error.message || "Failed to upload document",
+    });
+  }
+};
+
+/**
+ * EXTRACT CONTENT FROM FILE (WITHOUT PERSISTING DOCUMENT)
+ * Allows user to inspect extracted content and choose:
+ * 1. "Create document from extracted content"
+ * 2. "Insert extracted content into current document"
+ */
+export const extractDocumentContent = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file provided for extraction" });
+    }
+
+    const ext = validateUploadFile(req.file);
+    const { content, rawText } = await extractContentFromFile(
+      req.file.buffer,
+      ext,
+      req.file.originalname
+    );
+
+    const parsedPath = path.parse(req.file.originalname);
+    const suggestedTitle = parsedPath.name || "Extracted Document";
+
+    return res.json({
+      success: true,
+      filename: req.file.originalname,
+      title: suggestedTitle,
+      content,
+      rawText: rawText || content.replace(/<[^>]*>/g, " ").trim(),
+    });
+  } catch (error) {
+    console.error("extractDocumentContent error:", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Failed to extract content from file",
     });
   }
 };

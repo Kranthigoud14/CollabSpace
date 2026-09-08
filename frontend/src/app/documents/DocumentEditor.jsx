@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import AppLayout from "../layout/AppLayout";
 import api from "../../api/axios";
 import socketService from "../../services/socket";
@@ -11,8 +11,9 @@ import {
   deleteComment,
   replyComment,
 } from "../../api/comment.api";
-import { exportDocument } from "../../api/Document.api";
+import { exportDocument, deleteDocument } from "../../api/Document.api";
 import AIAssistant from "../../components/AI/Assistant";
+import UploadDocumentModal from "../../components/UploadDocumentModal";
 import { pushToast } from "../../components/ui/Toast";
 
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -20,6 +21,7 @@ import StarterKit from "@tiptap/starter-kit";
 
 function DocumentEditor() {
   const { id } = useParams();
+  const navigate = useNavigate();
 
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
@@ -39,6 +41,9 @@ function DocumentEditor() {
   const [cursorCoords, setCursorCoords] = useState({});
   const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const editorRef = useRef(null);
   const myDocRoleRef = useRef("member");
@@ -391,12 +396,24 @@ function DocumentEditor() {
       setOtherTypers((prev) => prev.filter((p) => p !== name));
     };
 
+    const handleDocumentDeleted = (deletedDocId) => {
+      const deletedIdStr =
+        typeof deletedDocId === "object"
+          ? deletedDocId?._id?.toString()
+          : deletedDocId?.toString();
+      if (deletedIdStr === id?.toString()) {
+        pushToast("This document was deleted.");
+        navigate("/app/documents");
+      }
+    };
+
     sock.on("joined_document", handleJoined);
     sock.on("joined-document", handleJoined);
     sock.on("document_state", handleDocumentState);
     sock.on("receive_changes", handleReceiveChanges);
     sock.on("receive-changes", handleReceiveChanges);
     sock.on("document:users", handleOnlineUsers);
+    sock.on("document_deleted", handleDocumentDeleted);
     sock.on("comment:new", handleNewComment);
     sock.on("comment:resolved", handleResolvedComment);
     sock.on("comment:deleted", handleDeletedComment);
@@ -419,6 +436,7 @@ function DocumentEditor() {
       sock.off("receive_changes", handleReceiveChanges);
       sock.off("receive-changes", handleReceiveChanges);
       sock.off("document:users", handleOnlineUsers);
+      sock.off("document_deleted", handleDocumentDeleted);
       sock.off("comment:new", handleNewComment);
       sock.off("comment:resolved", handleResolvedComment);
       sock.off("comment:deleted", handleDeletedComment);
@@ -484,6 +502,23 @@ function DocumentEditor() {
       }
     } catch (err) {
       console.error("Load document error:", err);
+      pushToast(err?.response?.data?.message || "Document not found or access denied.");
+      navigate("/app/documents");
+    }
+  };
+
+  const handleDeleteDocument = async () => {
+    try {
+      setDeleting(true);
+      await deleteDocument(id);
+      pushToast("Document deleted successfully ✓");
+      setShowDeleteConfirm(false);
+      navigate("/app/documents");
+    } catch (err) {
+      console.error("Delete document error:", err);
+      pushToast(err?.response?.data?.message || "Failed to delete document.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -641,12 +676,24 @@ function DocumentEditor() {
                   {saving ? "⏳ Saving..." : "✓ Saved"}
                 </span>
 
+                {/* Extract / Import file into editor */}
+                {!isViewer && (
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 transition-all cursor-pointer"
+                    title="Upload file to extract and insert text"
+                  >
+                    <span>📄</span> Extract / Insert
+                  </button>
+                )}
+
                 {/* Export Dropdown */}
                 <div className="relative">
                   <button
                     onClick={() => setShowExportMenu((prev) => !prev)}
                     disabled={exporting}
-                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-all shadow-md shadow-indigo-900/30"
+                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-all shadow-md shadow-indigo-900/30 cursor-pointer"
                     title="Export document"
                   >
                     <span>{exporting ? "Exporting..." : "📥 Export"}</span>
@@ -660,25 +707,37 @@ function DocumentEditor() {
                       </div>
                       <button
                         onClick={() => handleExport("pdf")}
-                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors"
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                       >
                         <span>📕</span> PDF Document (.pdf)
                       </button>
                       <button
                         onClick={() => handleExport("docx")}
-                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors"
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                       >
                         <span>📘</span> Word Document (.docx)
                       </button>
                       <button
                         onClick={() => handleExport("txt")}
-                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors"
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                       >
                         <span>📄</span> Plain Text (.txt)
                       </button>
                     </div>
                   )}
                 </div>
+
+                {/* Delete Document action */}
+                {!isViewer && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg text-red-400 hover:text-white hover:bg-red-500/20 border border-transparent hover:border-red-500/30 transition-all cursor-pointer"
+                    title="Delete document"
+                  >
+                    <span>🗑️</span>
+                  </button>
+                )}
               </div>
               
               {otherTypers.length > 0 && (
@@ -934,6 +993,56 @@ function DocumentEditor() {
           </div>
         </div>
       </div>
+
+      {/* Upload & Extract Content Modal */}
+      <UploadDocumentModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        isInEditor={true}
+        onInsertContent={(content) => {
+          editor?.commands.insertContent(content);
+        }}
+        onReplaceContent={(content) => {
+          editor?.commands.setContent(content);
+        }}
+        onSuccess={(newDoc) => {
+          if (newDoc?._id && newDoc._id !== id) {
+            navigate(`/app/documents/${newDoc._id}`);
+          }
+        }}
+      />
+
+      {/* Delete Document Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-slate-950 border border-red-900/40 rounded-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-white">Delete This Document?</h3>
+            <p className="text-slate-400 text-sm">
+              Are you sure you want to permanently delete{" "}
+              <span className="text-white font-semibold">"{title || "this document"}"</span>?
+              You will be redirected back to your documents list.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteDocument}
+                disabled={deleting}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                {deleting ? "Deleting..." : "Delete Document"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
