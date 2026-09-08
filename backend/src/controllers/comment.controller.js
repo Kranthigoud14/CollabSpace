@@ -17,6 +17,9 @@ const resolveProjectRole = async (documentId, userId) => {
     // Check if creator of the document
     if (doc.createdBy?.toString() === userId) return "owner";
 
+    // Check if project owner
+    if (project.owner?.toString() === userId) return "owner";
+
     const member = project.members.find(
       (m) => m.user?.toString() === userId
     );
@@ -31,11 +34,43 @@ const resolveProjectRole = async (documentId, userId) => {
 // =========================
 export const createComment = async (req, res) => {
   try {
-    const { document, text } = req.body;
+    const { document, text, selectedText, anchor } = req.body;
+
+    if (!document || !text || !text.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Document ID and text are required",
+      });
+    }
+
+    const doc = await Document.findById(document);
+    if (!doc) {
+      return res.status(404).json({ success: false, message: "Document not found" });
+    }
+
+    // Access check:
+    if (!doc.project) {
+      if (doc.createdBy.toString() !== req.user.userId) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to comment on this personal document",
+        });
+      }
+    } else {
+      const projectRole = await resolveProjectRole(document, req.user.userId);
+      if (!projectRole) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to comment on this project document",
+        });
+      }
+    }
 
     const comment = await Comment.create({
       document,
-      text,
+      text: text.trim(),
+      selectedText: selectedText || "",
+      anchor: anchor || undefined,
       user: req.user.userId,
     });
 
@@ -69,9 +104,35 @@ export const createComment = async (req, res) => {
 // =========================
 export const getComments = async (req, res) => {
   try {
+    const { documentId } = req.params;
+
+    const doc = await Document.findById(documentId);
+    if (!doc) {
+      return res.status(404).json({ success: false, message: "Document not found" });
+    }
+
+    // Access check:
+    if (!doc.project) {
+      if (doc.createdBy.toString() !== req.user.userId) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to view comments for this personal document",
+        });
+      }
+    } else {
+      const projectRole = await resolveProjectRole(documentId, req.user.userId);
+      if (!projectRole) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to view comments for this project document",
+        });
+      }
+    }
+
     const comments = await Comment.find({
-      document: req.params.documentId,
+      document: documentId,
     })
+      .sort({ createdAt: -1 })
       .populate("user", "name email")
       .populate("replies.user", "name email");
 

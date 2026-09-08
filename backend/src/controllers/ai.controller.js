@@ -4,7 +4,6 @@ import {
   askAI,
   transformContent,
   MAX_CONTENT_LENGTH,
-  UNAVAILABLE_MSG,
 } from "../services/ai.service.js";
 
 import { successResponse, errorResponse } from "../utils/apiResponse.js";
@@ -32,17 +31,22 @@ const handleAIResult = async (res, promise, successMessage) => {
   try {
     const result = await promise;
 
-    if (!result || result === UNAVAILABLE_MSG) {
-      return errorResponse(res, UNAVAILABLE_MSG, null, 503);
+    if (!result) {
+      return errorResponse(res, "AI service returned an empty response", null, 502);
     }
 
     return successResponse(res, successMessage, result);
   } catch (error) {
+    const status =
+      error.message?.includes("not configured") ||
+      error.message?.includes("Invalid Gemini API key")
+        ? 400
+        : 503;
     return errorResponse(
       res,
       error.message || "AI request failed",
       null,
-      503
+      status
     );
   }
 };
@@ -95,6 +99,9 @@ const VALID_ACTIONS = [
   "rewrite",
   "expand",
   "shorten",
+  "concise",
+  "key_points",
+  "action_items",
   "grammar",
   "generate",
   "continue",

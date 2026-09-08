@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import AppLayout from "../layout/AppLayout";
 import { useTaskStore } from "../../store/task.store";
 import { useProjectStore } from "../../store/project.store";
@@ -104,6 +104,9 @@ function Tasks() {
     addTask,
     editTask,
     removeTask,
+    startTracking,
+    pauseTracking,
+    stopTracking,
     subscribeSocket,
     unsubscribeSocket,
     loading,
@@ -115,6 +118,7 @@ function Tasks() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // taskId
+  const [timerTick, setTimerTick] = useState(0);
   const modalRef = useRef(null);
 
   // Helper to get project role for any project
@@ -320,10 +324,61 @@ function Tasks() {
   };
 
   // ── Column buckets ─────────────────────────────────────────────────────────
+  // Timer ticker - runs every second when any task has an active timer
+  const activeTimerTask = (tasks || []).find((t) => t && t.timerRunning);
+  useEffect(() => {
+    if (!activeTimerTask) return;
+    const interval = setInterval(() => setTimerTick((v) => v + 1), 1000);
+    return () => clearInterval(interval);
+  }, [activeTimerTask?._id]);
+
+  // Format seconds to HH:MM:SS
+  const formatTime = useCallback((totalSeconds) => {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }, []);
+
+  // Get live elapsed for a task
+  const getTaskElapsed = useCallback((task) => {
+    if (!task) return 0;
+    const base = task.timeSpent || 0;
+    if (task.timerRunning && task.timerStartedAt) {
+      return base + Math.round((Date.now() - new Date(task.timerStartedAt).getTime()) / 1000);
+    }
+    return base;
+  }, [timerTick]);
+
+  const handleToggleTimer = async (task) => {
+    try {
+      if (task.timerRunning) {
+        await pauseTracking(task._id);
+        pushToast(`Timer paused for "${task.title}"`);
+      } else {
+        await startTracking(task._id);
+        pushToast(`Timer started for "${task.title}"`);
+      }
+    } catch (err) {
+      pushToast(err?.response?.data?.message || "Failed to toggle timer.");
+    }
+  };
+
+  const handleStopTimer = async (task) => {
+    try {
+      await stopTracking(task._id);
+      pushToast(`Timer stopped for "${task.title}"`);
+    } catch (err) {
+      pushToast(err?.response?.data?.message || "Failed to stop timer.");
+    }
+  };
+
   const visibleTasks =
     selectedProjectId === "all"
-      ? tasks || []
+      ? (tasks || []).filter((t) => t != null)
       : (tasks || []).filter((t) => {
+          if (!t) return false;
           const projId =
             typeof t.project === "string" ? t.project : t.project?._id;
           return projId === selectedProjectId;
@@ -405,6 +460,25 @@ function Tasks() {
                 day: "numeric",
               })}
             </span>
+          )}
+        </div>
+
+        {/* Time tracking row */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-slate-500 font-mono tabular-nums">
+            ⏱ {formatTime(getTaskElapsed(task))}
+          </span>
+          {canEdit && task.status !== "completed" && (
+            <button
+              onClick={() => handleToggleTimer(task)}
+              className={`px-2 py-0.5 text-[9px] font-bold rounded border transition-all ${
+                task.timerRunning
+                  ? "bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20"
+                  : "bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20"
+              }`}
+            >
+              {task.timerRunning ? "⏸ Pause" : "▶ Start"}
+            </button>
           )}
         </div>
 
@@ -496,6 +570,38 @@ function Tasks() {
             )}
           </div>
         </div>
+
+        {/* ── Active Timer Banner ─────────────────────────────────────────── */}
+        {activeTimerTask && (
+          <div className="flex items-center justify-between gap-4 px-5 py-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
+              </span>
+              <span className="text-xs text-slate-300 font-semibold truncate">
+                Tracking: <span className="text-indigo-300 font-bold">{activeTimerTask.title}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-mono font-extrabold text-indigo-300 tabular-nums">
+                {formatTime(getTaskElapsed(activeTimerTask))}
+              </span>
+              <button
+                onClick={() => handleToggleTimer(activeTimerTask)}
+                className="px-3 py-1 text-[10px] font-bold bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 rounded-lg transition-all"
+              >
+                ⏸ Pause
+              </button>
+              <button
+                onClick={() => handleStopTimer(activeTimerTask)}
+                className="px-3 py-1 text-[10px] font-bold bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 rounded-lg transition-all"
+              >
+                ⏹ Stop
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Role hint banner when "all" view ─────────────────────────────── */}
         {selectedProjectId === "all" && (

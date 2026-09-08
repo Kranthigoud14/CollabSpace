@@ -9,13 +9,25 @@ import {
   deleteDocument,
   duplicateDocument,
   renameDocument,
+  uploadDocument,
+  exportDocument,
 } from "../controllers/document.controller.js";
 
-
+import multer from "multer";
 import authMiddleware from "../middleware/auth.middleware.js";
 import { requireDocumentRole } from "../middleware/documentRole.middleware.js";
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 const router = express.Router();
+
+/**
+ * UPLOAD DOCUMENT (PDF / DOCX / TXT)
+ */
+router.post("/upload", authMiddleware, upload.single("file"), uploadDocument);
 
 /**
  * CREATE DOCUMENT
@@ -78,5 +90,11 @@ router.delete(
  * DUPLICATE DOCUMENT
  */
 router.post("/:id/duplicate", authMiddleware, duplicateDocument);
+
+/**
+ * EXPORT DOCUMENT (PDF / DOCX / TXT)
+ */
+router.post("/:id/export", authMiddleware, requireDocumentRole("read"), exportDocument);
+router.get("/:id/export", authMiddleware, requireDocumentRole("read"), exportDocument);
 
 export default router;

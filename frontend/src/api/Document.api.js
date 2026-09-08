@@ -47,3 +47,21 @@ export const deleteDocument = async (id) => {
   const res = await api.delete(`/documents/${id}`);
   return res.data;
 };
+
+// UPLOAD DOCUMENT (PDF / DOCX / TXT)
+export const uploadDocument = async (formData) => {
+  const res = await api.post("/documents/upload", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
+// EXPORT DOCUMENT (PDF / DOCX / TXT)
+export const exportDocument = async (id, { format = "txt", content, title }) => {
+  const res = await api.post(
+    `/documents/${id}/export`,
+    { format, content, title },
+    { responseType: "blob" }
+  );
+  return res.data;
+};

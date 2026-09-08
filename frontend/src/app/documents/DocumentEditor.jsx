@@ -11,6 +11,7 @@ import {
   deleteComment,
   replyComment,
 } from "../../api/comment.api";
+import { exportDocument } from "../../api/Document.api";
 import AIAssistant from "../../components/AI/Assistant";
 import { pushToast } from "../../components/ui/Toast";
 
@@ -27,6 +28,8 @@ function DocumentEditor() {
 
   const [comments, setComments] = useState([]);
   const [selectedText, setSelectedText] = useState("");
+  const [textBeforeCursor, setTextBeforeCursor] = useState("");
+  const [textAfterCursor, setTextAfterCursor] = useState("");
   const [commentText, setCommentText] = useState("");
   const [activeTab, setActiveTab] = useState("comments");
   const [replyTexts, setReplyTexts] = useState({});
@@ -34,6 +37,8 @@ function DocumentEditor() {
 
   const [remoteCursors, setRemoteCursors] = useState({});
   const [cursorCoords, setCursorCoords] = useState({});
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const editorRef = useRef(null);
   const myDocRoleRef = useRef("member");
@@ -150,11 +155,18 @@ function DocumentEditor() {
       );
       setSelectedText(text);
 
+      const anchor = ed.state.selection.anchor;
+      const docSize = ed.state.doc.content.size;
+      const before = ed.state.doc.textBetween(Math.max(0, anchor - 2000), anchor);
+      const after = ed.state.doc.textBetween(anchor, Math.min(docSize, anchor + 1000));
+      setTextBeforeCursor(before);
+      setTextAfterCursor(after);
+
       const sock = socketService.getSocket();
       if (sock && myDocRoleRef.current !== "viewer" && documentJoinedRef.current) {
         sock.emit("cursor:move", {
           documentId: id,
-          position: { index: ed.state.selection.anchor },
+          position: { index: anchor },
           selection: {
             start: ed.state.selection.from,
             end: ed.state.selection.to,
@@ -553,6 +565,40 @@ function DocumentEditor() {
     }
   };
 
+  const handleExport = async (format) => {
+    setShowExportMenu(false);
+    try {
+      setExporting(true);
+      pushToast(`Preparing ${format.toUpperCase()} export...`);
+
+      const currentContent = editor ? editor.getHTML() : "";
+      const currentTitle = titleRef.current || "Document";
+
+      const blob = await exportDocument(id, {
+        format,
+        content: currentContent,
+        title: currentTitle,
+      });
+
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement("a");
+      link.href = url;
+      const safeTitle = currentTitle.replace(/[^a-zA-Z0-9_\- ]/g, "_").trim() || "Document";
+      link.setAttribute("download", `${safeTitle}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      pushToast(`Exported ${safeTitle}.${format} ✓`);
+    } catch (err) {
+      console.error("Export error:", err);
+      pushToast("Failed to export document");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const isViewer = myDocRole === "viewer";
 
   return (
@@ -588,14 +634,55 @@ function DocumentEditor() {
               </div>
             </div>
 
-            {/* Save Status & Typing Indicators */}
-            <div className="flex flex-col items-start sm:items-end justify-center">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-400">
-                {saving ? "⏳ Saving changes..." : "✓ Saved"}
-              </span>
+            {/* Save Status, Export & Typing Indicators */}
+            <div className="flex flex-col items-start sm:items-end justify-center gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                  {saving ? "⏳ Saving..." : "✓ Saved"}
+                </span>
+
+                {/* Export Dropdown */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowExportMenu((prev) => !prev)}
+                    disabled={exporting}
+                    className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-all shadow-md shadow-indigo-900/30"
+                    title="Export document"
+                  >
+                    <span>{exporting ? "Exporting..." : "📥 Export"}</span>
+                    <span className="text-[9px]">▼</span>
+                  </button>
+
+                  {showExportMenu && (
+                    <div className="absolute right-0 mt-1.5 w-48 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl py-1 z-30 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                        Export As
+                      </div>
+                      <button
+                        onClick={() => handleExport("pdf")}
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors"
+                      >
+                        <span>📕</span> PDF Document (.pdf)
+                      </button>
+                      <button
+                        onClick={() => handleExport("docx")}
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors"
+                      >
+                        <span>📘</span> Word Document (.docx)
+                      </button>
+                      <button
+                        onClick={() => handleExport("txt")}
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-indigo-600 hover:text-white flex items-center gap-2 transition-colors"
+                      >
+                        <span>📄</span> Plain Text (.txt)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
               
               {otherTypers.length > 0 && (
-                <span className="text-[10px] text-indigo-400 font-medium italic mt-2 animate-pulse">
+                <span className="text-[10px] text-indigo-400 font-medium italic mt-1 animate-pulse">
                   ✍️ {otherTypers.join(", ")} {otherTypers.length === 1 ? "is" : "are"} typing...
                 </span>
               )}
@@ -831,9 +918,16 @@ function DocumentEditor() {
               <AIAssistant
                 documentContent={editor?.getHTML() || ""}
                 selectedText={selectedText}
+                textBeforeCursor={textBeforeCursor}
+                textAfterCursor={textAfterCursor}
                 onAccept={(text) => {
                   editor?.commands.insertContent(text);
                   pushToast("Inserted AI generated text");
+                }}
+                onReplace={(text) => {
+                  if (!editor) return;
+                  editor.chain().focus().deleteSelection().insertContent(text).run();
+                  pushToast("Replaced selected text with AI output ✓");
                 }}
               />
             )}

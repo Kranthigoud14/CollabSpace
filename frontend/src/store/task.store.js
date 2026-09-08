@@ -95,6 +95,21 @@ export const useTaskStore = create((set, get) => ({
     }
   },
 
+  startTracking: async (taskId) => {
+    const { editTask } = get();
+    return editTask(taskId, { timerRunning: true });
+  },
+
+  pauseTracking: async (taskId) => {
+    const { editTask } = get();
+    return editTask(taskId, { timerRunning: false });
+  },
+
+  stopTracking: async (taskId) => {
+    const { editTask } = get();
+    return editTask(taskId, { timerRunning: false });
+  },
+
   subscribeSocket: (projectId = "all", projectIds = []) => {
     const socket = getSocket() || connect();
     if (!socket) return;

@@ -5,6 +5,7 @@ import { useDocumentStore } from "../../store/document.store";
 import { useTaskStore } from "../../store/task.store";
 import { useAuthStore } from "../../store/auth.store";
 import api from "../../api/axios";
+import UploadDocumentModal from "../../components/UploadDocumentModal";
 
 function ProjectDetails() {
   const { id } = useParams();
@@ -18,6 +19,7 @@ function ProjectDetails() {
 
   const [project, setProject] = useState(null);
   const [docTitle, setDocTitle] = useState("");
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDesc, setTaskDesc] = useState("");
   const [taskAssignee, setTaskAssignee] = useState("");
@@ -203,23 +205,32 @@ function ProjectDetails() {
                 </h3>
               </div>
 
-              {/* CREATE DOCUMENT */}
+              {/* CREATE DOCUMENT & UPLOAD */}
               {!isViewer && (
-                <form onSubmit={handleCreateDocument} className="flex gap-2">
-                  <input
-                    value={docTitle}
-                    onChange={(e) => setDocTitle(e.target.value)}
-                    placeholder="Create new project document..."
-                    className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:bg-slate-900/60 transition-all"
-                  />
+                <div className="flex items-center gap-2">
+                  <form onSubmit={handleCreateDocument} className="flex gap-2 flex-1">
+                    <input
+                      value={docTitle}
+                      onChange={(e) => setDocTitle(e.target.value)}
+                      placeholder="Create new project document..."
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 focus:bg-slate-900/60 transition-all"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!docTitle.trim()}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap"
+                    >
+                      Create
+                    </button>
+                  </form>
                   <button
-                    type="submit"
-                    disabled={!docTitle.trim()}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all"
+                    type="button"
+                    onClick={() => setShowUploadModal(true)}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2"
                   >
-                    Create
+                    <span>📄</span> Upload
                   </button>
-                </form>
+                </div>
               )}
 
               {/* DOCUMENT GRID */}
@@ -426,6 +437,17 @@ function ProjectDetails() {
           </div>
         </div>
       </div>
+
+      {/* Upload Document Modal for Project */}
+      <UploadDocumentModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        projectId={id}
+        onSuccess={(newDoc) => {
+          fetchMyDocs();
+          if (newDoc?._id) navigate(`/app/documents/${newDoc._id}`);
+        }}
+      />
     </AppLayout>
   );
 }

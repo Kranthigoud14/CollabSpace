@@ -3,6 +3,7 @@ import AppLayout from "../layout/AppLayout";
 import { useDocumentStore } from "../../store/document.store";
 import { useAuthStore } from "../../store/auth.store";
 import { useNavigate } from "react-router-dom";
+import UploadDocumentModal from "../../components/UploadDocumentModal";
 
 /* ─────────────────────────────────────────────
    Helpers
@@ -417,6 +418,7 @@ function Documents() {
   const [deleting, setDeleting] = useState(false);
   const [renameTarget, setRenameTarget] = useState(null);
   const [renaming, setRenaming] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const { show: showToast, Toast } = useToast();
 
@@ -516,50 +518,59 @@ function Documents() {
             </p>
           </div>
 
-          {/* Create form */}
-          <form
-            onSubmit={handleCreateDoc}
-            className="flex gap-2 w-full md:w-auto"
-          >
-            <input
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="New document title..."
-              className="flex-1 md:w-56 px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 transition-all"
-            />
-            <button
-              type="submit"
-              disabled={creating || !newTitle.trim()}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2"
+          {/* Create form & Upload */}
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <form
+              onSubmit={handleCreateDoc}
+              className="flex gap-2 w-full md:w-auto"
             >
-              {creating ? (
-                <>
-                  <svg
-                    className="w-3.5 h-3.5 animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Creating...
-                </>
-              ) : (
-                <>+ Create</>
-              )}
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="New document title..."
+                className="flex-1 md:w-56 px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-white placeholder-slate-500 text-sm outline-none focus:border-indigo-500 transition-all"
+              />
+              <button
+                type="submit"
+                disabled={creating || !newTitle.trim()}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2"
+              >
+                {creating ? (
+                  <>
+                    <svg
+                      className="w-3.5 h-3.5 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v8H4z"
+                      />
+                    </svg>
+                    Creating...
+                  </>
+                ) : (
+                  <>+ Create</>
+                )}
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={() => setShowUploadModal(true)}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-sm font-semibold rounded-xl transition-all whitespace-nowrap flex items-center gap-2"
+            >
+              <span>📄</span> Upload
             </button>
-          </form>
+          </div>
         </div>
 
         {/* ── Search Bar ── */}
@@ -641,6 +652,17 @@ function Documents() {
           saving={renaming}
         />
       )}
+
+      {/* ── Upload Modal ── */}
+      <UploadDocumentModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        projectId={null}
+        onSuccess={(newDoc) => {
+          fetchMyDocs();
+          if (newDoc?._id) navigate(`/app/documents/${newDoc._id}`);
+        }}
+      />
 
       {/* ── Toast ── */}
       {Toast}

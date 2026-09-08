@@ -1,5 +1,6 @@
 import Task from "../models/Task.model.js";
 import Project from "../models/Project.model.js";
+import Document from "../models/Document.model.js";
 
 import { logActivity } from "../services/activity.service.js";
 import { createNotification } from "../services/notification.service.js";
@@ -9,12 +10,13 @@ import { getIO } from "../services/socket.service.js";
  * Helper: get role (includes project owner)
  */
 const getUserRole = (project, userId) => {
+  if (!project) return null;
   if (project.owner?.toString() === userId.toString()) {
     return "owner";
   }
 
-  const member = project.members.find(
-    (m) => m.user.toString() === userId.toString()
+  const member = (project.members || []).find(
+    (m) => m && m.user && m.user.toString() === userId.toString()
   );
   return member ? member.role : null;
 };
@@ -51,6 +53,7 @@ const emitToProject = (io, projectId, event, payload) => {
  * Helper: check access
  */
 const requireProjectAccess = (project, userId) => {
+  if (!project) return null;
   const role = getUserRole(project, userId);
   if (!role) return null;
   return role;
@@ -72,9 +75,9 @@ export const createTask = async (req, res) => {
       priority,
     } = req.body;
 
-    if ((!project && !document) || (project && document)) {
+    if (!project && !document) {
       return res.status(400).json({
-        message: "Provide exactly ONE of project or document",
+        message: "Provide at least one of project or document ID",
       });
     }
 
@@ -83,16 +86,29 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ message: dueDateError });
     }
 
-    let role = null;
+    let resolvedProjectId = project || null;
 
-    if (project) {
-      const proj = await Project.findById(project);
+    if (document) {
+      const doc = await Document.findById(document);
+      if (!doc) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      if (doc.project && !resolvedProjectId) {
+        resolvedProjectId = doc.project.toString();
+      }
+      if (!doc.project && doc.createdBy.toString() !== req.user.userId.toString()) {
+        return res.status(403).json({ message: "Not authorized to create tasks for this document" });
+      }
+    }
+
+    if (resolvedProjectId) {
+      const proj = await Project.findById(resolvedProjectId);
 
       if (!proj) {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      role = requireProjectAccess(proj, req.user.userId);
+      const role = requireProjectAccess(proj, req.user.userId);
 
       if (!role) {
         return res.status(403).json({ message: "Not a project member" });
@@ -104,7 +120,7 @@ export const createTask = async (req, res) => {
     }
 
     const task = await Task.create({
-      project: project || null,
+      project: resolvedProjectId || null,
       document: document || null,
       title,
       description,
@@ -187,6 +203,40 @@ export const updateTask = async (req, res) => {
         if (task.status === "completed" && req.body.status !== undefined && req.body.status !== "completed") {
           return res.status(403).json({ message: "Only Owner or Admin can reopen completed tasks" });
         }
+      }
+    }
+
+    if (req.body.status === "completed" && task.timerRunning) {
+      req.body.timerRunning = false;
+    }
+
+    if (req.body.timerRunning !== undefined && req.body.timerRunning !== task.timerRunning) {
+      const io = getIO();
+      if (req.body.timerRunning) {
+        const runningTasks = await Task.find({
+          timerRunning: true,
+          _id: { $ne: task._id }
+        });
+        
+        for (const rTask of runningTasks) {
+          const elapsed = rTask.timerStartedAt
+            ? Math.round((Date.now() - new Date(rTask.timerStartedAt).getTime()) / 1000)
+            : 0;
+          rTask.timeSpent = (rTask.timeSpent || 0) + elapsed;
+          rTask.timerRunning = false;
+          rTask.timerStartedAt = null;
+          await rTask.save();
+          
+          emitToProject(io, rTask.project, "task_updated", rTask);
+        }
+        
+        req.body.timerStartedAt = new Date();
+      } else {
+        const elapsed = task.timerStartedAt
+          ? Math.round((Date.now() - new Date(task.timerStartedAt).getTime()) / 1000)
+          : 0;
+        req.body.timeSpent = (task.timeSpent || 0) + elapsed;
+        req.body.timerStartedAt = null;
       }
     }
 

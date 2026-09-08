@@ -42,6 +42,21 @@ const taskSchema = new mongoose.Schema(
     },
 
     dueDate: Date,
+
+    timeSpent: {
+      type: Number,
+      default: 0,
+    },
+
+    timerStartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    timerRunning: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

@@ -50,13 +50,18 @@ export const requireDocumentRole = (action) => {
         (m) => m.user.toString() === req.user.userId
       );
 
-      if (!member) {
+      let role = null;
+      if (project.owner?.toString() === req.user.userId) {
+        role = "owner";
+      } else if (member) {
+        role = member.role;
+      }
+
+      if (!role) {
         return res.status(403).json({
           message: "Not a project member",
         });
       }
-
-      const role = member.role;
 
       /**
        * RULE ENGINE

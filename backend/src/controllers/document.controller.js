@@ -3,6 +3,9 @@ import Project from "../models/Project.model.js";
 import { logActivity } from "../services/activity.service.js";
 import { createNotification } from "../services/notification.service.js";
 import { getIO } from "../services/socket.service.js";
+import path from "path";
+import { validateUploadFile, extractContentFromFile } from "../services/fileUpload.service.js";
+import { generatePDF, generateDOCX, generateTXT } from "../services/fileExport.service.js";
 
 /**
  * helper → check user role in project
@@ -95,17 +98,15 @@ export const updateDocument = async (req, res) => {
     let role = "owner";
 
     if (project) {
-      const member = project.members.find(
-        (m) => m.user.toString() === req.user.userId.toString()
-      );
+      const resolvedRole = getUserRole(project, req.user.userId);
 
-      if (!member) {
+      if (!resolvedRole) {
         return res.status(403).json({
           message: "Not a project member",
         });
       }
 
-      role = member.role;
+      role = resolvedRole;
     }
 
     // ❌ viewer cannot update
@@ -212,13 +213,38 @@ export const deleteDocument = async (req, res) => {
 };
 
 /**
- * GET DOCUMENTS (NO RBAC CHANGE - BUT SAFE FILTER)
+ * GET DOCUMENTS (SECURED - USER ACCESS FILTERED)
  */
 export const getDocuments = async (req, res) => {
   try {
     const { projectId } = req.params;
 
-    const query = projectId ? { project: projectId } : {};
+    let query = {};
+    if (projectId) {
+      const proj = await Project.findById(projectId);
+      if (!proj) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      const role = getUserRole(proj, req.user.userId);
+      if (!role) {
+        return res.status(403).json({ message: "Not authorized to view documents in this project" });
+      }
+      query = { project: projectId };
+    } else {
+      const projects = await Project.find({
+        $or: [
+          { owner: req.user.userId },
+          { "members.user": req.user.userId },
+        ],
+      }).select("_id");
+      const projectIds = projects.map((p) => p._id);
+      query = {
+        $or: [
+          { createdBy: req.user.userId },
+          { project: { $in: projectIds } },
+        ],
+      };
+    }
 
     const documents = await Document.find(query).sort({ createdAt: -1 });
 
@@ -251,7 +277,10 @@ export const getDocumentById = async (req, res) => {
 export const getUserDocuments = async (req, res) => {
   try {
     const projects = await Project.find({
-      "members.user": req.user.userId,
+      $or: [
+        { owner: req.user.userId },
+        { "members.user": req.user.userId },
+      ],
     }).select("_id");
 
     const projectIds = projects.map((p) => p._id);
@@ -332,5 +361,149 @@ export const duplicateDocument = async (req, res) => {
     res.status(201).json(copy);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * UPLOAD DOCUMENT (PDF / DOCX / TXT)
+ * Extracts text, creates normal CollabSpace document
+ */
+export const uploadDocument = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded" });
+    }
+
+    const ext = validateUploadFile(req.file);
+    const { content } = await extractContentFromFile(
+      req.file.buffer,
+      ext,
+      req.file.originalname
+    );
+
+    const parsedPath = path.parse(req.file.originalname);
+    const title = (req.body?.title && req.body.title.trim()) || parsedPath.name || "Uploaded Document";
+    const project = req.body?.project || null;
+
+    if (project) {
+      const proj = await Project.findById(project);
+      if (!proj) {
+        return res.status(404).json({ success: false, message: "Project not found" });
+      }
+      const role = getUserRole(proj, req.user.userId);
+      if (!role || role === "viewer") {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to upload documents to this project",
+        });
+      }
+    }
+
+    const document = await Document.create({
+      title,
+      content,
+      project: project || null,
+      createdBy: req.user.userId,
+    });
+
+    await logActivity({
+      userId: req.user.userId,
+      projectId: project,
+      documentId: document._id,
+      action: "DOCUMENT_CREATED",
+      message: `Document uploaded: ${title}`,
+    });
+
+    const io = getIO();
+    if (project) {
+      io.to(project.toString()).emit("document_created", document);
+    }
+
+    await createNotification({
+      user: req.user.userId,
+      project,
+      type: "DOCUMENT",
+      message: `Document uploaded: ${title}`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Document uploaded successfully",
+      document,
+    });
+  } catch (error) {
+    console.error("uploadDocument error:", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Failed to upload document",
+    });
+  }
+};
+
+/**
+ * EXPORT DOCUMENT (PDF / DOCX / TXT)
+ * Converts latest editor content to requested format
+ */
+export const exportDocument = async (req, res) => {
+  try {
+    const documentId = req.params.id;
+    const document = req.document || (await Document.findById(documentId));
+
+    if (!document) {
+      return res.status(404).json({ success: false, message: "Document not found" });
+    }
+
+    const format = (req.body?.format || req.query?.format || "txt").toLowerCase();
+    const content = req.body?.content !== undefined ? req.body.content : document.content || "";
+    const title = req.body?.title || document.title || "Document";
+
+    // If editor sent newer content and user has edit rights, optionally save to DB
+    if (req.body?.content !== undefined && (req.role === "owner" || req.role === "admin" || req.role === "editor")) {
+      document.content = req.body.content;
+      if (req.body?.title && (req.role === "owner" || req.role === "admin")) {
+        document.title = req.body.title;
+      }
+      await document.save();
+    }
+
+    const safeTitle = title.replace(/[^a-zA-Z0-9_\- ]/g, "_").trim() || "Document";
+
+    if (format === "pdf") {
+      const buffer = await generatePDF(title, content);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeTitle}.pdf"`);
+      res.setHeader("Content-Length", buffer.length);
+      return res.end(buffer);
+    }
+
+    if (format === "docx") {
+      const buffer = await generateDOCX(title, content);
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      );
+      res.setHeader("Content-Disposition", `attachment; filename="${safeTitle}.docx"`);
+      res.setHeader("Content-Length", buffer.length);
+      return res.end(buffer);
+    }
+
+    if (format === "txt") {
+      const buffer = generateTXT(title, content);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeTitle}.txt"`);
+      res.setHeader("Content-Length", buffer.length);
+      return res.end(buffer);
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: "Unsupported format. Supported formats: pdf, docx, txt",
+    });
+  } catch (error) {
+    console.error("exportDocument error:", error);
+    return res.status(500).json({
+      success: false,
+      message: `Export failed: ${error.message}`,
+    });
   }
 };
