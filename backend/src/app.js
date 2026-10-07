@@ -13,6 +13,20 @@ import dashboardRoutes from "./routes/dashboard.routes.js";
 
 const app = express();
 
+const getAllowedOrigins = () => {
+  const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    process.env.CLIENT_URL,
+    process.env.VITE_FRONTEND_URL,
+    "http://localhost:5173",
+    "https://localhost:5173",
+    "https://collab-space-ten.vercel.app",
+    "https://collabspace-iuji.onrender.com",
+  ].filter(Boolean);
+
+  return [...new Set(configuredOrigins)];
+};
+
 /**
  * =========================
  * TRUST PROXY (RENDER FIX)
@@ -29,10 +43,16 @@ app.set("trust proxy", 1);
 // CORS
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://collab-space-ten.vercel.app"
-    ],
+    origin: (origin, callback) => {
+      const allowedOrigins = getAllowedOrigins();
+
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );

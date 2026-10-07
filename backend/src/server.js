@@ -12,6 +12,20 @@ import { socketAuth } from "./middleware/socketAuth.middleware.js";
 
 const PORT = process.env.PORT || 5000;
 
+const getAllowedSocketOrigins = () => {
+  const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    process.env.CLIENT_URL,
+    process.env.VITE_FRONTEND_URL,
+    "http://localhost:5173",
+    "https://localhost:5173",
+    "https://collab-space-ten.vercel.app",
+    "https://collabspace-iuji.onrender.com",
+  ].filter(Boolean);
+
+  return [...new Set(configuredOrigins)];
+};
+
 // =========================
 // CREATE HTTP SERVER
 // =========================
@@ -22,10 +36,16 @@ const server = http.createServer(app);
 // =========================
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "https://collab-space-ten.vercel.app",
-    ],
+    origin: (origin, callback) => {
+      const allowedOrigins = getAllowedSocketOrigins();
+
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Socket origin not allowed"));
+    },
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   },
@@ -43,7 +63,7 @@ connectDB()
   .then(() => {
     console.log("MongoDB Connected");
 
-    server.listen(PORT, () => {
+    server.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
     });
   })
